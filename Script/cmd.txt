@@ -1,0 +1,4 @@
+Generate video
+ffmpeg -f concat -safe 0 -i input_list.txt -c copy temp_video.mp4
+Combine video with audio
+ffmpeg -i temp_video.mp4 -i original_audio.aac -c:v copy -c:a aac -strict experimental final_clip.mp4

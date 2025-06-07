@@ -1,0 +1,38 @@
+import os, time
+import subprocess
+import fixxingFunc
+import glob
+dirpath = "SubclipOutput/"  # Folder containing sub-clips
+import cv2
+
+# Step 1: Get all sub-clip filenames and sort them numerically
+#files = [os.path.normpath(i) for i in glob.glob(dirpath + "*.mp4")]
+files = [i for i in os.listdir (dirpath) if i[-1]=='4']
+numeric_files = sorted(files, key=lambda x: int(os.path.splitext(x)[0])) 
+#print (numeric_files)
+print ("checking")
+for i in range (0, len(numeric_files)-1):
+    cap  = cv2.VideoCapture(dirpath+numeric_files[i])
+    video_length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    a = int(numeric_files[i].split('_')[1].split(".")[0])
+    b = int(numeric_files[i+1].split('_')[0])
+    print (dirpath+numeric_files[i], video_length)
+    if video_length!=a+1-int(numeric_files[i].split('_')[0]):
+        print ("Length Issue on file", numeric_files[i],', a = ',a,' int(nume...:', int(numeric_files[i].split('_')[0]),
+               ',\n   Expected length:',a+1-int(numeric_files[i].split('_')[0]),', True Length: ',video_length)
+        #break
+        time.sleep (0.05)
+        #fixxingFunc.nibba_woka (int(numeric_files[i].split('_')[0]),a)
+    if ((a != b) and (a!=b-1)):
+        print ("Issue in continuity: ",a, b,', Difference: ', b-a ,", File name: ",numeric_files[i]," ",numeric_files[i+1])
+        time.sleep (0.02)
+        #break
+        #fixxingFunc.nibba_woka (a, b)
+
+
+
+#Code mình đang bị 3 lỗi:
+# Lỗi 1: Nếu sub-process bị đói ram, nó sẽ ngưng chạy và không tạo file
+# Lỗi 2: Đôi lúc file tạo ra bị thiếu frame? (Nhưng chỉ bị với file mình chạy tay, không biết tự động thì có bị không
+# Lỗi 3: Không tạo được file cuối cùng (Có lẽ là đã sửa xong?)
+#fixxingFunc.nibba_woka (
