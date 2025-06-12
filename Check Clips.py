@@ -1,9 +1,16 @@
 import os, time
 import subprocess
+
+def get_length(filename):
+    result = subprocess.run(["ffprobe", "-v", "error",  "-count_frames", "-show_entries",
+                            "-of", "csv=p=0", filename],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT)
+    return float(result.stdout)
 #import fixxingFunc
 import glob
-dirpath = "D:/TEMP/JAV Subclip"
-#dirpath = "SubclipOutput/GPT"  # Folder containing sub-clips
+dirpath = "D:/TEMP/JAV Subclip/"
+#dirpath = "SubclipOutput/GPT/"  # Folder containing sub-clips
 import cv2
 
 # Step 1: Get all sub-clip filenames and sort them numerically
@@ -12,12 +19,13 @@ files = [i for i in os.listdir (dirpath) if i[-1]=='4']
 numeric_files = sorted(files, key=lambda x: int(os.path.splitext(x)[0])) 
 #print (numeric_files)
 print ("checking")
+
 for i in range (0, len(numeric_files)-1):
     cap  = cv2.VideoCapture(dirpath+numeric_files[i])
     video_length = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     a = int(numeric_files[i].split('_')[1].split(".")[0])
     b = int(numeric_files[i+1].split('_')[0])
-    if (i%10 == 0):
+    if (i%50 == 0):
         print (dirpath+numeric_files[i], video_length)
     if video_length!=a+1-int(numeric_files[i].split('_')[0]):
         print ("Length Issue on file", numeric_files[i],', a = ',a, #' int(nume...:', int(numeric_files[i].split('_')[0]),

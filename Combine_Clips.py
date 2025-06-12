@@ -21,7 +21,7 @@ def combine_clips (subclip_path, original_path, output_path):
         "ffmpeg", "-f", "concat", "-safe", "0", "-i", file_list_path, "-c", "copy", "temp_video.mp4"
     ]
     subprocess.run(concat_cmd, check=True)
-    asdasd
+    
     # Step 4: Extract original audio
     audio_path = "original_audio.aac"
     subprocess.run(["ffmpeg", "-y", "-i", original_path, "-q:a", "0", "-map", "a", audio_path], check=True)
@@ -33,7 +33,14 @@ def combine_clips (subclip_path, original_path, output_path):
     # Step 6: Cleanup
     os.remove("temp_video.mp4")
     os.remove(audio_path)
-    #os.remove(file_list_path)
+    os.remove(file_list_path)
     print(f"Final video saved as {output_path}")
 if __name__ == "__main__":
     combine_clips (subclip_path, original_path, output_path)
+    import cv2
+    original_cap = cv2.VideoCapture (original_path)
+    original_frame_count = original_cap.get (cv2.CAP_PROP_FRAME_COUNT)
+    output_cap = cv2.VideoCapture (output_path)
+    output_frame_count = output_cap.get (cv2.CAP_PROP_FRAME_COUNT)
+    print ("These frames count should be the same")
+    print ("Original: ", original_frame_count,' output: ', output_frame_count,', difference: ', abs(output_frame_count - original_frame_count))

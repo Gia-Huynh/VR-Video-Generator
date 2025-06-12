@@ -26,22 +26,52 @@ logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemo
 VideoDir = "Videos/She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4"
 encoder = 'vitb'
 encoder_path = f'depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth'
-offset_fg =  0.0225
-offset_bg = -0.0125
+offset_fg =  0.020
+offset_bg = -0.015
 
-ffmpeg_preset = 'fast'
+#Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
+#Options in [input options] are applied to the input. Options in [output options] are applied to the output.
+_, fps, video_length, width, height = load_and_set_video (VideoDir, 0)
+ffmpeg_device = 'nvidia'
+ffmpeg_config = [
+    'ffmpeg',
+    '-y',
+    '-f', 'rawvideo',
+    '-vcodec', 'rawvideo',
+    '-pix_fmt', 'rgb24',
+    '-s',
+    f'{2*width}x{height}', '-r', str(fps),
+    '-i', '-',  # stdin
+    '-an',
+    '-pix_fmt', 'yuv420p'
+    ]
 
-Num_Workers = 10
+if (ffmpeg_device == 'cpu'):
+    ffmpeg_encoder = 'libx264' #'libx264' for cpu
+    ffmpeg_config += ['-c:v', ffmpeg_encoder]
+    ffmpeg_crf = '20'
+    ffmpeg_preset = 'veryfast'    
+    ffmpeg_config += ['-crf', ffmpeg_crf, '-preset', ffmpeg_preset]  # use crf with libx264
+elif (ffmpeg_device == 'nvidia'):
+    ffmpeg_encoder = 'h264_nvenc' #h264_nvenc for h264, hevc_nvenc for h265.
+    ffmpeg_config += ['-c:v', ffmpeg_encoder]
+    ffmpeg_crf = '19'
+    ffmpeg_preset = 'p1' #Lower is faster
+    ffmpeg_config = ffmpeg_config + ['-cq', ffmpeg_crf,
+                                     '-rc', 'vbr',
+                                     '-preset', ffmpeg_preset]
+Num_Workers = 24
 num_gpu = 2
-Num_GPU_Workers = 6 #Total
-Max_Frame_Count = 25
+Num_GPU_Workers = 8 #Total
+Max_Frame_Count = 50
 start_frame = 0
-end_frame = 27000 #9999999999999 #if larger than video length, will be clipped off
+end_frame = 27000 #9999999999999 #27000 is 15 minutes
+#if larger than video length, will be clipped off
 
 #Num_Workers = 1
 #num_gpu = 1
 #Num_GPU_Workers = 1 #Total
-#Max_Frame_Count = 60
+#Max_Frame_Count = 20
 #start_frame = 0
 #end_frame = 78574
 
@@ -119,22 +149,11 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         masked_mask[bin_mask] = True
         
         offset_x = int((i + (0.5 * curr_step)) / (limit_step - curr_step) * (offset_range[1] - offset_range[0]) + offset_range[0])      
-        #This one is for edge filling for "close-by" objects
-        #if (offset_x > 0):
-        #    masked_mask_border = cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))
-            #dilated_masked_mask_border = cv2.dilate((masked_mask_border>0).astype(np.uint8), kernel_expand, iterations = 1)
-            #del masked_mask_border
-            #edge_fill_temp_img = np.zeros_like(raw_img)
-            #edge_fill_temp_img[dilated_masked_mask_border] = raw_img[dilated_masked_mask_border]
-            #edge_fill_temp_img = np.roll(edge_fill_temp_img, shift=offset_x, axis=1)  # Shift along the width (x-axis)
-            #dilated_masked_mask_border = np.roll(dilated_masked_mask_border, shift=offset_x, axis=1).astype (np.bool)
-            #edge_fill_img[dilated_masked_mask_border] = edge_fill_temp_img[dilated_masked_mask_border]
-            #edge_fill_blank_mask |= dilated_masked_mask_border
-            #This one doesn't work
-            #result_blank_mask &= np.logical_not (dilated_masked_mask_border)  #A AND (NOT B)
         if offset_x != 0:
             masked_img = np.roll(masked_img, shift=offset_x, axis=1)  # Shift along the width (x-axis)
             masked_mask = np.roll(masked_mask, shift=offset_x, axis=1).astype (np.bool)
+
+        #This one is for edge filling for "close-by" objects
         if (offset_x > 0):
             masked_mask_border = cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))>0
             edge_fill_blank_mask |= masked_mask_border
@@ -162,6 +181,10 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     result_img[edge_fill_blank_mask] = cv2.stackBlur (result_img, (limit_step*2 + 3, round(limit_step/8)*2 + 1))[edge_fill_blank_mask]
     result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
     return cv2.hconcat([result_img, raw_img])
+    if last_frame is not None:
+        return cv2.hconcat([result_img, last_frame])
+    else:
+        return cv2.hconcat([result_img, raw_img])
 
 def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_Frame_Count, file_path = VideoDir):
     #Silence all output of child process
@@ -171,26 +194,12 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
     print_flush ("video_length: ",video_length, ", begin and end: ",begin, end)
     #random_sleep ((0, int(30 * (begin/video_length))), "Sleeping some more to diverge them process")
     begin_time = time.time()
+    global ffmpeg_config
     try:
-        #PreFilledMemory = [np.zeros((height, 2*width, 3), dtype = np.uint8) for i in range (0, max_frame_count*2)] #Fill memory for initialization
-        #PreFilledMemory = []
-        ffmpeg_config = [
-            'ffmpeg',
-            '-y',
-            '-f', 'rawvideo',
-            '-vcodec', 'rawvideo',
-            '-pix_fmt', 'rgb24',
-            '-s', f'{2*width}x{height}',
-            '-r', str(fps),
-            '-i', '-',  # stdin
-            '-an',
-            '-c:v', 'libx264',
-            '-preset', ffmpeg_preset,
-            '-crf', '19']
         ffmpeg_proc = None
         last_i = begin
         FrameList = []
-        for i in range (begin, min (end+1, video_length)):
+        for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
             if (raw_img is not None):
                 FrameList.append(left_side_sbs(raw_img[:,:,[2,1,0]], inference_queue, result_queue))
@@ -198,28 +207,21 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 FrameList.append(np.zeros((height, 2*width, 3), dtype = np.uint8))
                 gc.collect()
                 print_flush ("Frame read error at i = ",i,", adding black frame to compensate.")
-            if (len (FrameList) == max_frame_count) or (i == (min (end, video_length-1))):
+            if (len (FrameList) == max_frame_count) or (i == (min (end-1, video_length-1))):
                 total_step = (min (end, video_length) - begin)
                 step_taken = i - begin
                 time_taken = (time.time() - begin_time)
                 time_total = time_taken / step_taken * total_step
                 time_left = time_taken / step_taken * (total_step - step_taken)
                 print_flush ("Writing file ", i, "with length (in frames): ", len(FrameList))
-                print_flush ("",str(step_taken / total_step * 100), "%, Time elapsed (minutes):", time_taken/60.0,", ETA:", time_left/60.0,", Estimated Total Time (minutes):", time_total/60.0)
+                print_flush ("",str(int(step_taken / total_step * 10000)/100), "%, Time elapsed (minutes):", time_taken/60.0,", ETA:", time_left/60.0,", Estimated Total Time (minutes):", time_total/60.0)
                 gc.collect()
                 compare_time = time.time()
-                """clip = ImageSequenceClip(FrameList, fps=fps)
-                clip.write_videofile(SubClipDir+str(last_i)+"_"+str(i)+".mp4", preset = 'slow', audio=False, threads = 4, logger=None)
-                del clip
-                print_flush ("clip.write_videofile time: ",time.time()-compare_time)
-                compare_time = time.time()
-                SpF.write_video(SubClipDir+str(last_i)+"_"+str(i)+".mp4", FrameList, fps)
-                print_flush ("cv2 write time: ",time.time()-compare_time)
-                compare_time = time.time()"""
+                
                 if (ffmpeg_proc is not None): #If the previous ffmpeg subprocess did not finished, wait till it's done before generating new one
                     ffmpeg_proc.wait()
                 ffmpeg_proc = subprocess.Popen(ffmpeg_config + [f'{SubClipDir}{last_i}_{i}.mp4'],
-                                               stdin=subprocess.PIPE)
+                                           stdin=subprocess.PIPE)
                 for frame in FrameList:
                     ffmpeg_proc.stdin.write(frame.tobytes())
                 ffmpeg_proc.stdin.close()
@@ -257,7 +259,6 @@ if __name__ == "__main__":
     #set_start_method("spawn", force=True) #no-op on Windows, uncomment this on Linux
     #inference_proc = Process(target=inference_worker, args=(inference_queue, result_queue))
     #inference_proc.start()
-    _, _, video_length, _, _ = load_and_set_video (VideoDir, 0)
     step = math.ceil((min(end_frame, video_length) - start_frame)/Num_Workers)
     frame_indices = range(start_frame, min(end_frame, video_length), step)
     
@@ -268,7 +269,8 @@ if __name__ == "__main__":
     
     for j in range (0, Num_GPU_Workers):
         inference_workers[j].start()
-        random_sleep ((1,2), "staggered model load")
+        random_sleep ((0,1), "staggered model load")
+    #nibba_woka (15550, 15610, inference_queue_list[0], result_queue_list[0])
     #for i in frame_indices:
     workers = []
     random_sleep ((0, 1), "Random sleep for model loading")
@@ -276,7 +278,7 @@ if __name__ == "__main__":
         inference_workers_idx = idx % Num_GPU_Workers
         worker = Process(target = nibba_woka, args = (i, i + step, inference_queue_list[inference_workers_idx], result_queue_list[inference_workers_idx]))
         print ("idx: ", idx,", GPU Worker: ",inference_workers_idx, ", worker: ", worker)
-        random_sleep ((0, 1), "staggered worker start")
+        random_sleep ((1, 2), "Staggered worker start") #There is a reason for this, Don't mess with it
         worker.start()
         workers.append(worker)
     for w in workers:
@@ -286,6 +288,6 @@ if __name__ == "__main__":
     for w in inference_workers:
         w.join()
     #nibba_woka (15550, 15610)
-    asdasd
+    #asdasd
     from Combine_Clips import combine_clips
     combine_clips (SubClipDir, VideoDir, "output_vid.mp4")
