@@ -167,3 +167,5 @@ cython_debug/
 /Videos 
 /depth_anything_v2 
 /Debug
+/Debug
+*.mp4

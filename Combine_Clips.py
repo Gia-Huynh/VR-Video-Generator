@@ -1,9 +1,9 @@
 import os
 import subprocess
 import glob
-subclip_path = "SubclipOutput/"  # Folder containing sub-clips
+subclip_path = "D:/TEMP/JAV Subclip"  # Folder containing sub-clips
 original_path = "Videos/She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4" # Full video with audio
-output_path = "SBS She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4"
+output_path = "SBS Maria Nagai.mp4"
 
 def combine_clips (subclip_path, original_path, output_path):
     # Step 1: Get all sub-clip filenames and sort them numerically
@@ -16,14 +16,15 @@ def combine_clips (subclip_path, original_path, output_path):
         for name in numeric_files:
             fullfile = os.path.join(subclip_path, name)
             f.write(f"file '{fullfile}'\n")
-    # Step 3: Extract original audio
-    audio_path = "original_audio.aac"
-    subprocess.run(["ffmpeg", "-y", "-i", original_path, "-q:a", "0", "-map", "a", audio_path], check=True)
-    # Step 4: Concatenate video files
+    # Step 3: Concatenate video files
     concat_cmd = [
         "ffmpeg", "-f", "concat", "-safe", "0", "-i", file_list_path, "-c", "copy", "temp_video.mp4"
     ]
     subprocess.run(concat_cmd, check=True)
+    asdasd
+    # Step 4: Extract original audio
+    audio_path = "original_audio.aac"
+    subprocess.run(["ffmpeg", "-y", "-i", original_path, "-q:a", "0", "-map", "a", audio_path], check=True)
     # Step 5: Merge video with extracted audio
     final_cmd = [
         "ffmpeg", "-i", "temp_video.mp4", "-i", audio_path, "-c:v", "copy", "-c:a", "aac", "-strict", "experimental", output_path
@@ -32,7 +33,7 @@ def combine_clips (subclip_path, original_path, output_path):
     # Step 6: Cleanup
     os.remove("temp_video.mp4")
     os.remove(audio_path)
-    os.remove(file_list_path)
+    #os.remove(file_list_path)
     print(f"Final video saved as {output_path}")
 if __name__ == "__main__":
     combine_clips (subclip_path, original_path, output_path)

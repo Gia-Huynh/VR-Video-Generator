@@ -9,18 +9,17 @@ import torch
 from torch.amp import autocast #For FP16
 from depth_anything_v2.dpt import DepthAnythingV2
 #Video Export Libraries
+import subprocess
 import multiprocessing as mp
 from multiprocessing import shared_memory
 from multiprocessing import Process, Queue, set_start_method
 from moviepy import ImageSequenceClip
 #Support Functions
 from SupportFunction import get_cutoff, load_model, load_and_set_video, random_sleep, redirrect_stdout, print_flush, remove_all_file
+import SupportFunction as SpF
 DebugDir = "Debug/"
 #SubClipDir = "SubclipOutput/"
 SubClipDir = "D:/TEMP/JAV Subclip/"
-#remove_all_file (SubClipDir)
-#remove_all_file (DebugDir)
-#asdasdasdasdasdasdasdasdasdasd
 # Initialize logging
 logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -30,12 +29,14 @@ encoder_path = f'depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth'
 offset_fg =  0.0225
 offset_bg = -0.0125
 
-Num_Workers = 24
+ffmpeg_preset = 'fast'
+
+Num_Workers = 10
 num_gpu = 2
-Num_GPU_Workers = 10 #Total
-Max_Frame_Count = 30
+Num_GPU_Workers = 6 #Total
+Max_Frame_Count = 25
 start_frame = 0
-end_frame = 9999999999999 #if larger than video length, will be clipped off
+end_frame = 27000 #9999999999999 #if larger than video length, will be clipped off
 
 #Num_Workers = 1
 #num_gpu = 1
@@ -173,6 +174,20 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
     try:
         #PreFilledMemory = [np.zeros((height, 2*width, 3), dtype = np.uint8) for i in range (0, max_frame_count*2)] #Fill memory for initialization
         #PreFilledMemory = []
+        ffmpeg_config = [
+            'ffmpeg',
+            '-y',
+            '-f', 'rawvideo',
+            '-vcodec', 'rawvideo',
+            '-pix_fmt', 'rgb24',
+            '-s', f'{2*width}x{height}',
+            '-r', str(fps),
+            '-i', '-',  # stdin
+            '-an',
+            '-c:v', 'libx264',
+            '-preset', ffmpeg_preset,
+            '-crf', '19']
+        ffmpeg_proc = None
         last_i = begin
         FrameList = []
         for i in range (begin, min (end+1, video_length)):
@@ -192,28 +207,37 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 print_flush ("Writing file ", i, "with length (in frames): ", len(FrameList))
                 print_flush ("",str(step_taken / total_step * 100), "%, Time elapsed (minutes):", time_taken/60.0,", ETA:", time_left/60.0,", Estimated Total Time (minutes):", time_total/60.0)
                 gc.collect()
-                clip = ImageSequenceClip(FrameList, fps=fps)
+                compare_time = time.time()
+                """clip = ImageSequenceClip(FrameList, fps=fps)
                 clip.write_videofile(SubClipDir+str(last_i)+"_"+str(i)+".mp4", preset = 'slow', audio=False, threads = 4, logger=None)
-
-                #Sanity check to protect my sanity
-                temp_cap = cv2.VideoCapture(SubClipDir+str(last_i)+"_"+str(i)+".mp4")
-                print ("FrameList length: ",len(FrameList),", Actual length: ", temp_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                if (len(FrameList) != temp_cap.get(cv2.CAP_PROP_FRAME_COUNT)):
-                    np.savez(DebugDir + str(begin)+'.npz', *FrameList)
-                assert (len(FrameList) == temp_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                temp_cap.release()
-                
-                #check = True
-                #while check == True:
-                #    check, Frame = cap.read()
-                #    ActualFrameList.append (Frame)
+                del clip
+                print_flush ("clip.write_videofile time: ",time.time()-compare_time)
+                compare_time = time.time()
+                SpF.write_video(SubClipDir+str(last_i)+"_"+str(i)+".mp4", FrameList, fps)
+                print_flush ("cv2 write time: ",time.time()-compare_time)
+                compare_time = time.time()"""
+                if (ffmpeg_proc is not None): #If the previous ffmpeg subprocess did not finished, wait till it's done before generating new one
+                    ffmpeg_proc.wait()
+                ffmpeg_proc = subprocess.Popen(ffmpeg_config + [f'{SubClipDir}{last_i}_{i}.mp4'],
+                                               stdin=subprocess.PIPE)
+                for frame in FrameList:
+                    ffmpeg_proc.stdin.write(frame.tobytes())
+                ffmpeg_proc.stdin.close()
+                print_flush ("ffmpeg pipe write time: ",time.time()-compare_time)
+                #Random sanity check to protect my sanity
+                if (i%1000 == 0):
+                    temp_cap = cv2.VideoCapture(SubClipDir+str(last_i)+"_"+str(i)+".mp4")
+                    print ("FrameList length: ",len(FrameList),", Actual length: ", temp_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    assert (len(FrameList) == temp_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    temp_cap.release()
                 last_i = i+1
                 FrameList = []
-                del clip
                 gc.collect()                
         print_flush ("Worker ending")
         try:
-            out_file.close()
+            #out_file.close()
+            #ffmpeg_proc.stdin.close()
+            ffmpeg_proc.wait()
         except:
             pass
         return 0

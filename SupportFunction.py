@@ -1,10 +1,19 @@
 import numpy as np
 import torch
 import cv2
-import random, time, sys
+import random, time, sys, shutil, os
 from depth_anything_v2.dpt import DepthAnythingV2
 
-def random_sleep (sleep_length, message):
+def remove_all_file (dir_path):
+    if os.path.isdir(dir_path) and os.listdir(dir_path):  # check not empty
+        for filename in os.listdir(dir_path):
+            file_path = os.path.join(dir_path, filename)
+            if os.path.isfile(file_path) or os.path.islink(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+            
+def random_sleep (sleep_length, message = ""):
     sleep_length = random.uniform(sleep_length[0], sleep_length[1])
     print (message + " : " + str(sleep_length) +  " seconds.")
     try:
@@ -12,7 +21,25 @@ def random_sleep (sleep_length, message):
     except:
         pass
     time.sleep(sleep_length)
-    
+
+def redirrect_stdout (out_path):
+    if True:
+	#if sys.stdout is None:
+        out_file = open(out_path, 'w')
+        sys.stdout = out_file
+        sys.stderr = out_file
+        sys.stdout.flush()
+
+def print_flush(*args, **kwargs):
+    print(*args, **kwargs)
+    sys.stdout.flush()
+def write_video (file_path, frames, fps):
+    #frames is a list of numpy frames
+    height, width, _ = frames[0].shape
+    out = cv2.VideoWriter(file_path, cv2.VideoWriter_fourcc(*'h264'), fps, (width, height))
+    for frame in frames:
+        out.write(frame[:,:,::-1])
+    out.release()
 last_cutoff = None
 def get_cutoff (depth_img, last_depth):
     #Getting cutoff locations from depth_img    
@@ -58,7 +85,7 @@ def get_cutoff (depth_img, last_depth):
                     Max = count
                     MaxIdx = i
 
-    Result_Cutoff_List = sorted (Result_Cutoff_List)
+    #Result_Cutoff_List = sorted (Result_Cutoff_List)
     Result_Cutoff_List.append(depth_img.max())
     Result_Cutoff_List.insert (0, 0)
     Result_Cutoff_List = sorted (Result_Cutoff_List)
@@ -86,7 +113,7 @@ def load_model(encoder, encoder_path, DEVICE):
         'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]},
         'vitg': {'encoder': 'vitg', 'features': 384, 'out_channels': [1536, 1536, 1536, 1536]}
     }
-    model = DepthAnythingV2(**model_configs[encoder])
+    model = DepthAnythingV2(device = DEVICE, **model_configs[encoder])
     model.load_state_dict(torch.load(encoder_path, map_location=DEVICE))
     model = model.to(DEVICE).eval()
     return model
