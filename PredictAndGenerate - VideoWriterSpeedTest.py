@@ -18,15 +18,12 @@ from moviepy import ImageSequenceClip
 from SupportFunction import get_cutoff, load_model, load_and_set_video, random_sleep, redirrect_stdout, print_flush, remove_all_file
 import SupportFunction as SpF
 DebugDir = "Debug/"
-#SubClipDir = "SubclipOutput/"
 SubClipDir = "D:/TEMP/JAV Subclip/"
-# Initialize logging
-logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
-
 VideoDir = "Videos/She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4"
+OutputDir = "Left_Right different frame.mp4"
 encoder = 'vitb'
 encoder_path = f'depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth'
-offset_fg =  0.020
+offset_fg =  0.015
 offset_bg = -0.015
 
 #Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
@@ -53,27 +50,24 @@ if (ffmpeg_device == 'cpu'):
     ffmpeg_preset = 'veryfast'    
     ffmpeg_config += ['-crf', ffmpeg_crf, '-preset', ffmpeg_preset]  # use crf with libx264
 elif (ffmpeg_device == 'nvidia'):
-    ffmpeg_encoder = 'h264_nvenc' #h264_nvenc for h264, hevc_nvenc for h265.
+    ffmpeg_encoder = 'hevc_nvenc' #h264_nvenc for h264, hevc_nvenc for h265.
     ffmpeg_config += ['-c:v', ffmpeg_encoder]
     ffmpeg_crf = '19'
-    ffmpeg_preset = 'p1' #Lower is faster
+    ffmpeg_preset = 'p7' #Lower is faster
     ffmpeg_config = ffmpeg_config + ['-cq', ffmpeg_crf,
                                      '-rc', 'vbr',
                                      '-preset', ffmpeg_preset]
 Num_Workers = 24
-num_gpu = 2
-Num_GPU_Workers = 8 #Total
+num_gpu = 1
+Num_GPU_Workers = 4 #Total
 Max_Frame_Count = 50
 start_frame = 0
-end_frame = 27000 #9999999999999 #27000 is 15 minutes
-#if larger than video length, will be clipped off
+end_frame = 9999999999999 #9999999999999 #27000 is 15 minutes
+#if smaller than video length, will be clipped off
 
-#Num_Workers = 1
-#num_gpu = 1
-#Num_GPU_Workers = 1 #Total
-#Max_Frame_Count = 20
-#start_frame = 0
-#end_frame = 78574
+
+# Initialize logging
+logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
 
 #Global Variable
 last_depth_flag = True
@@ -84,6 +78,7 @@ def inference_worker (in_queue, out_queue, DEVICE):
     print_flush (encoder, encoder_path, DEVICE)
     print_flush ("Torch model loading into device name: ", torch.cuda.get_device_name(DEVICE))
     model = load_model(encoder, encoder_path, DEVICE)
+    print_flush ("Model loaded, trying to infer an image...")
     model.infer_image (np.zeros((1080, 1920, 3), dtype = np.uint8))
     torch.cuda.empty_cache()
     print_flush ("Model loaded")
@@ -104,10 +99,9 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         depth = last_depth
     else:     
         last_frame = raw_img.copy()
-        #last_frame = 1
-        inference_queue.put((cv2.stackBlur(raw_img, (5,5)),)) #cv2.stackBlur(raw_img, (5,5))
+        inference_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
         depth = result_queue.get()
-        depth = cv2.stackBlur(depth, (3, 3)).astype(np.float32) #OG la (3, 3)
+        #depth = cv2.stackBlur(depth, (3, 3)).astype(np.float32) #OG la (3, 3) #Khong can stackblur vi interpolate bicubic
         #FUCK IT WE NORMALIZE
         depth -= depth.min()
         depth /= depth.max()
@@ -150,20 +144,18 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         
         offset_x = int((i + (0.5 * curr_step)) / (limit_step - curr_step) * (offset_range[1] - offset_range[0]) + offset_range[0])      
         if offset_x != 0:
+            #Room for Optimization: np.roll
+            #https://gist.github.com/cchwala/dea03fb55d9a50660bd52e00f5691db5
             masked_img = np.roll(masked_img, shift=offset_x, axis=1)  # Shift along the width (x-axis)
             masked_mask = np.roll(masked_mask, shift=offset_x, axis=1).astype (np.bool)
 
         #This one is for edge filling for "close-by" objects
-        if (offset_x > 0):
-            masked_mask_border = cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))>0
-            edge_fill_blank_mask |= masked_mask_border
+        #if (offset_x > 0):
+        #    masked_mask_border = cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))>0
+        #    edge_fill_blank_mask |= masked_mask_border
         #mask_nonzero = masked_mask
         result_img[masked_mask] = masked_img[masked_mask]
         result_blank_mask |= masked_mask
-
-    #edge_fill_temp_img[~edge_fill_blank_mask] = result_img[~edge_fill_blank_mask]
-    #result_img = cv2.addWeighted(result_img, 0.5, edge_fill_temp_img, 0.5, 0)
-    #return 0
 
     result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
     result_zero_mask = cv2.dilate(result_zero_mask.astype(np.uint8), kernel_expand,iterations = 1)
@@ -176,11 +168,12 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
                                     ,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
                                     )
                                    )[result_zero_mask]
-    edge_fill_blank_mask = cv2.dilate(edge_fill_blank_mask.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
-    #cv2.imwrite ("blank_mask.png", edge_fill_blank_mask*254)
-    result_img[edge_fill_blank_mask] = cv2.stackBlur (result_img, (limit_step*2 + 3, round(limit_step/8)*2 + 1))[edge_fill_blank_mask]
+    #Is this line necessary?
+    #edge_fill_blank_mask = cv2.dilate(edge_fill_blank_mask.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
+
+    #result_img[edge_fill_blank_mask] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_blank_mask]
+
     result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
-    return cv2.hconcat([result_img, raw_img])
     if last_frame is not None:
         return cv2.hconcat([result_img, last_frame])
     else:
@@ -290,4 +283,4 @@ if __name__ == "__main__":
     #nibba_woka (15550, 15610)
     #asdasd
     from Combine_Clips import combine_clips
-    combine_clips (SubClipDir, VideoDir, "output_vid.mp4")
+    combine_clips (SubClipDir, VideoDir, OutputDir) 
