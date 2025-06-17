@@ -19,12 +19,20 @@ from SupportFunction import get_cutoff, load_model, load_and_set_video, random_s
 import SupportFunction as SpF
 DebugDir = "Debug/"
 SubClipDir = "D:/TEMP/JAV Subclip/"
-VideoDir = "Videos/She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4"
-OutputDir = "Left_Right different frame.mp4"
+VideoDir = "Videos/Shoplifter Aryana Amatista.mp4"
+OutputDir = "SBS Aryana Amatista.mp4"
 encoder = 'vitb'
 encoder_path = f'depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth'
-offset_fg =  0.015
-offset_bg = -0.015
+offset_fg =  0.02
+offset_bg = -0.02
+
+Num_Workers = 16
+num_gpu = 1
+Num_GPU_Workers = 3 #Total
+Max_Frame_Count = 50
+start_frame = 0
+end_frame = 9999999999999 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
+#if smaller than video length, will be clipped off
 
 #Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
 #Options in [input options] are applied to the input. Options in [output options] are applied to the output.
@@ -52,18 +60,16 @@ if (ffmpeg_device == 'cpu'):
 elif (ffmpeg_device == 'nvidia'):
     ffmpeg_encoder = 'hevc_nvenc' #h264_nvenc for h264, hevc_nvenc for h265.
     ffmpeg_config += ['-c:v', ffmpeg_encoder]
-    ffmpeg_crf = '19'
+    ffmpeg_cq = '28'
+    ffmpeg_tune = '5'# -(default hq)  hq:1 uhq:5         
     ffmpeg_preset = 'p7' #Lower is faster
-    ffmpeg_config = ffmpeg_config + ['-cq', ffmpeg_crf,
+    ffmpeg_multipass = '2' #disabled:0, qres:1, fullres:2
+    ffmpeg_config = ffmpeg_config + ['-cq', ffmpeg_cq,
                                      '-rc', 'vbr',
-                                     '-preset', ffmpeg_preset]
-Num_Workers = 24
-num_gpu = 1
-Num_GPU_Workers = 4 #Total
-Max_Frame_Count = 50
-start_frame = 0
-end_frame = 9999999999999 #9999999999999 #27000 is 15 minutes
-#if smaller than video length, will be clipped off
+                                     '-preset', ffmpeg_preset,
+                                     '-multipass', ffmpeg_multipass,
+                                     '-tune', ffmpeg_tune,
+                                     '-rc-lookahead', '6']
 
 
 # Initialize logging
@@ -95,17 +101,18 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     global last_depth_flag
     global last_frame
     global last_depth
-    if (last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (5, 5)), cv2.stackBlur(last_frame, (3, 3)))) < 6000000) and (last_depth_flag == True):
+    #Used to be  (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (5, 5)), cv2.stackBlur(last_frame, (3, 3)))) < 6000000)
+    if (last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(last_frame, (3, 3)))) < 3000000) and (last_depth_flag == True):
         depth = last_depth
     else:     
         last_frame = raw_img.copy()
         inference_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
         depth = result_queue.get()
-        #depth = cv2.stackBlur(depth, (3, 3)).astype(np.float32) #OG la (3, 3) #Khong can stackblur vi interpolate bicubic
+        #depth = cv2.stackBlur(depth, (3, 3)).astype(np.float32) #OG la (3, 3) #Khong can stackblur vi interpolate bicubic va da blur roi
         #FUCK IT WE NORMALIZE
         depth -= depth.min()
         depth /= depth.max()
-        depth *= 15
+        depth *= 14.99
         if (last_depth_flag == False):
             depth = depth*0.6 + last_depth*0.4
             last_depth = depth.copy()
@@ -142,7 +149,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         masked_mask = np.zeros(raw_img.shape[:2], dtype=bool)
         masked_mask[bin_mask] = True
         
-        offset_x = int((i + (0.5 * curr_step)) / (limit_step - curr_step) * (offset_range[1] - offset_range[0]) + offset_range[0])      
+        offset_x = int((i + (0.5 * curr_step)) / (0.00001+limit_step - curr_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])      
         if offset_x != 0:
             #Room for Optimization: np.roll
             #https://gist.github.com/cchwala/dea03fb55d9a50660bd52e00f5691db5
@@ -250,8 +257,9 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
         return None
 if __name__ == "__main__":
     #set_start_method("spawn", force=True) #no-op on Windows, uncomment this on Linux
-    #inference_proc = Process(target=inference_worker, args=(inference_queue, result_queue))
-    #inference_proc.start()
+    remove_all_file (DebugDir)
+    remove_all_file (SubClipDir)
+    
     step = math.ceil((min(end_frame, video_length) - start_frame)/Num_Workers)
     frame_indices = range(start_frame, min(end_frame, video_length), step)
     

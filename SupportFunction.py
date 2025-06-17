@@ -9,7 +9,10 @@ def remove_all_file (dir_path):
         for filename in os.listdir(dir_path):
             file_path = os.path.join(dir_path, filename)
             if os.path.isfile(file_path) or os.path.islink(file_path):
-                os.unlink(file_path)
+                try:
+                    os.unlink(file_path)
+                except PermissionError:
+                    pass
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
             
