@@ -19,17 +19,17 @@ from SupportFunction import get_cutoff, load_model, load_and_set_video, random_s
 import SupportFunction as SpF
 DebugDir = "Debug/"
 SubClipDir = "D:/TEMP/JAV Subclip/"
-VideoDir = "Videos/Shoplifter Aryana Amatista.mp4"
-OutputDir = "SBS Aryana Amatista.mp4"
+VideoDir = "Videos/SW-158.mp4"
+OutputDir = "SBS SW-158.mp4"
 encoder = 'vitb'
 encoder_path = f'depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth'
-offset_fg =  0.02
-offset_bg = -0.02
+offset_fg =  0.009
+offset_bg = -0.0117
 
 Num_Workers = 16
 num_gpu = 1
 Num_GPU_Workers = 3 #Total
-Max_Frame_Count = 50
+Max_Frame_Count = 100
 start_frame = 0
 end_frame = 9999999999999 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
 #if smaller than video length, will be clipped off
@@ -102,7 +102,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     global last_frame
     global last_depth
     #Used to be  (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (5, 5)), cv2.stackBlur(last_frame, (3, 3)))) < 6000000)
-    if (last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(last_frame, (3, 3)))) < 3000000) and (last_depth_flag == True):
+    if (last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(last_frame, (3, 3)))) < 2000000) and (last_depth_flag == True):
         depth = last_depth
     else:     
         last_frame = raw_img.copy()
@@ -110,9 +110,9 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         depth = result_queue.get()
         #depth = cv2.stackBlur(depth, (3, 3)).astype(np.float32) #OG la (3, 3) #Khong can stackblur vi interpolate bicubic va da blur roi
         #FUCK IT WE NORMALIZE
-        depth -= depth.min()
-        depth /= depth.max()
-        depth *= 14.99
+        #depth -= depth.min()
+        #depth /= depth.max()
+        #depth *= 14.99
         if (last_depth_flag == False):
             depth = depth*0.6 + last_depth*0.4
             last_depth = depth.copy()
@@ -124,11 +124,12 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     #Normal image fill
     result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
     result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
-    #Edge blurring
+    #Edge blurring DOES NOT CONSUME CPU TIME MUCH.
     edge_fill_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
     #Values idk
-    offset_range = [offset_bg * raw_img.shape[0], offset_fg * raw_img.shape[0]]
-    limit_step = 15
+    #limit_step = 15
+    limit_step = math.ceil(depth.max())
+    offset_range = [offset_bg * raw_img.shape[0], offset_fg * raw_img.shape[0] * limit_step/14.0]
     max_depth = limit_step
     kernel_size = round(0.0037 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
     kernel_expand = np.ones ((max(kernel_size-1, 1),  max(kernel_size-1, 1)))
@@ -149,7 +150,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         masked_mask = np.zeros(raw_img.shape[:2], dtype=bool)
         masked_mask[bin_mask] = True
         
-        offset_x = int((i + (0.5 * curr_step)) / (0.00001+limit_step - curr_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])      
+        offset_x = int((i+0.5*curr_step) / (0.00001+limit_step - curr_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
         if offset_x != 0:
             #Room for Optimization: np.roll
             #https://gist.github.com/cchwala/dea03fb55d9a50660bd52e00f5691db5
@@ -157,9 +158,9 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
             masked_mask = np.roll(masked_mask, shift=offset_x, axis=1).astype (np.bool)
 
         #This one is for edge filling for "close-by" objects
-        #if (offset_x > 0):
+        if (offset_x > 0):
         #    masked_mask_border = cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))>0
-        #    edge_fill_blank_mask |= masked_mask_border
+            edge_fill_blank_mask |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))>0
         #mask_nonzero = masked_mask
         result_img[masked_mask] = masked_img[masked_mask]
         result_blank_mask |= masked_mask
@@ -178,7 +179,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     #Is this line necessary?
     #edge_fill_blank_mask = cv2.dilate(edge_fill_blank_mask.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
 
-    #result_img[edge_fill_blank_mask] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_blank_mask]
+    result_img[edge_fill_blank_mask] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_blank_mask]
 
     result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
     if last_frame is not None:
