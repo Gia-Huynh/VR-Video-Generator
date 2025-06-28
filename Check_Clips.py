@@ -1,12 +1,6 @@
 import os, time
 import subprocess
-
-def get_length(filename):
-    result = subprocess.run(["ffprobe", "-v", "error",  "-count_frames", "-show_entries",
-                            "-of", "csv=p=0", filename],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT)
-    return float(result.stdout)
+from SupportFunction import get_length
 #import fixxingFunc
 import glob
 dirpath = "D:/TEMP/JAV Subclip/"

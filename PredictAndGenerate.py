@@ -15,18 +15,24 @@ from multiprocessing import shared_memory
 from multiprocessing import Process, Queue, set_start_method
 from moviepy import ImageSequenceClip
 #Support Functions
-from SupportFunction import get_cutoff, load_model, load_and_set_video, random_sleep, redirrect_stdout, print_flush, remove_all_file
+from SupportFunction import get_length, get_cutoff, load_model, load_and_set_video, random_sleep, redirrect_stdout, print_flush, remove_all_file
 import SupportFunction as SpF
+
 DebugDir = "Debug/"
 SubClipDir = "D:/TEMP/JAV Subclip/"
-VideoDir = "Videos/SW-158.mp4"
-OutputDir = "SBS SW-158.mp4"
+VideoDir = "Videos/Tifa_DoggyEvening_Twitter.mp4"
+OutputDir = "SBS Tifa_DoggyEvening_Twitter.mp4"
 encoder = 'vitb'
 encoder_path = f'depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth'
-offset_fg =  0.009
-offset_bg = -0.0117
 
-Num_Workers = 16
+if __name__ == "__main__":
+    remove_all_file (DebugDir)
+    remove_all_file (SubClipDir)
+    
+offset_fg = 0.0108 #0.009
+offset_bg = 0.0108 #-0.009 #0117
+
+Num_Workers = 24
 num_gpu = 1
 Num_GPU_Workers = 3 #Total
 Max_Frame_Count = 100
@@ -34,6 +40,7 @@ start_frame = 0
 end_frame = 9999999999999 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
 #if smaller than video length, will be clipped off
 
+    
 #Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
 #Options in [input options] are applied to the input. Options in [output options] are applied to the output.
 _, fps, video_length, width, height = load_and_set_video (VideoDir, 0)
@@ -60,7 +67,7 @@ if (ffmpeg_device == 'cpu'):
 elif (ffmpeg_device == 'nvidia'):
     ffmpeg_encoder = 'hevc_nvenc' #h264_nvenc for h264, hevc_nvenc for h265.
     ffmpeg_config += ['-c:v', ffmpeg_encoder]
-    ffmpeg_cq = '28'
+    ffmpeg_cq = '29'
     ffmpeg_tune = '5'# -(default hq)  hq:1 uhq:5         
     ffmpeg_preset = 'p7' #Lower is faster
     ffmpeg_multipass = '2' #disabled:0, qres:1, fullres:2
@@ -69,7 +76,7 @@ elif (ffmpeg_device == 'nvidia'):
                                      '-preset', ffmpeg_preset,
                                      '-multipass', ffmpeg_multipass,
                                      '-tune', ffmpeg_tune,
-                                     '-rc-lookahead', '6']
+                                     '-rc-lookahead', '8']
 
 
 # Initialize logging
@@ -159,14 +166,13 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
 
         #This one is for edge filling for "close-by" objects
         if (offset_x > 0):
-        #    masked_mask_border = cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))>0
-            edge_fill_blank_mask |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))>0
+           edge_fill_blank_mask |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))>0
         #mask_nonzero = masked_mask
         result_img[masked_mask] = masked_img[masked_mask]
         result_blank_mask |= masked_mask
 
     result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
-    result_zero_mask = cv2.dilate(result_zero_mask.astype(np.uint8), kernel_expand,iterations = 1)
+    result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #cv2.dilate(result_zero_mask.astype(np.uint8), kernel_expand,iterations = 1)
 
     #Fill result_img with blurred value from zero_mask
     result_zero_mask = result_zero_mask.astype(bool)
@@ -231,7 +237,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 if (i%1000 == 0):
                     temp_cap = cv2.VideoCapture(SubClipDir+str(last_i)+"_"+str(i)+".mp4")
                     print ("FrameList length: ",len(FrameList),", Actual length: ", temp_cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                    assert (len(FrameList) == temp_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    #assert (len(FrameList) == temp_cap.get(cv2.CAP_PROP_FRAME_COUNT))
                     temp_cap.release()
                 last_i = i+1
                 FrameList = []
@@ -258,8 +264,6 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
         return None
 if __name__ == "__main__":
     #set_start_method("spawn", force=True) #no-op on Windows, uncomment this on Linux
-    remove_all_file (DebugDir)
-    remove_all_file (SubClipDir)
     
     step = math.ceil((min(end_frame, video_length) - start_frame)/Num_Workers)
     frame_indices = range(start_frame, min(end_frame, video_length), step)

@@ -3,6 +3,13 @@ import torch
 import cv2
 import random, time, sys, shutil, os
 from depth_anything_v2.dpt import DepthAnythingV2
+import subprocess
+def get_length(filename):
+    result = subprocess.run(["ffprobe", "-v", "error",  "-count_frames", "-show_entries",
+                            "-of", "csv=p=0", filename],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT)
+    return float(result.stdout)
 
 def remove_all_file (dir_path):
     if os.path.isdir(dir_path) and os.listdir(dir_path):  # check not empty
