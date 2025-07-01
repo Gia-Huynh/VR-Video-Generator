@@ -21,7 +21,7 @@ import SupportFunction as SpF
 DebugDir = "Debug/"
 SubClipDir = "D:/TEMP/JAV Subclip/"
 VideoDir = "Videos/Tifa_DoggyEvening_Twitter.mp4"
-OutputDir = "SBS Tifa_DoggyEvening_Twitter.mp4"
+OutputDir = "SBS V2 Tifa_DoggyEvening_Twitter.mp4"
 encoder = 'vitb'
 encoder_path = f'depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth'
 
@@ -138,8 +138,8 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     limit_step = math.ceil(depth.max())
     offset_range = [offset_bg * raw_img.shape[0], offset_fg * raw_img.shape[0] * limit_step/14.0]
     max_depth = limit_step
-    kernel_size = round(0.0037 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
-    kernel_expand = np.ones ((max(kernel_size-1, 1),  max(kernel_size-1, 1)))
+    kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
+    kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
     #Threshold values
     cu = sorted(get_cutoff(depth, last_depth))
     nt = [cu[i+1]-cu[i] for i in range(len(cu)-1)]
@@ -172,8 +172,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         result_blank_mask |= masked_mask
 
     result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
-    result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #cv2.dilate(result_zero_mask.astype(np.uint8), kernel_expand,iterations = 1)
-
+    result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
     #Fill result_img with blurred value from zero_mask
     result_zero_mask = result_zero_mask.astype(bool)
     result_img[result_zero_mask] = (cv2.stackBlur
