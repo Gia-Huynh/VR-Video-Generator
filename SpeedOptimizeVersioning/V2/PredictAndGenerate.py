@@ -136,41 +136,22 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
     kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
     #Threshold values
-    #cutoff_list = sorted(get_cutoff(depth, last_depth))
-    #step_list = [cutoff_list[i+1]-cutoff_list[i] for i in range(len(cutoff_list)-1)]
-    #t = cutoff_list.pop() #Remove last element
-	#last_offset_x = None
-	#last_i = None
-	#new_cutoff_list = cutoff_list.copy()
-    """for i, curr_step in zip(cutoff_list, step_list):
-        offset_x = int((i+0.5*curr_step) / (0.00001+limit_step - curr_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
-		if (last_offset_x is None):
-			last_offset_x = offset_x
-			last_i = i
-			continue
-		if (offset_x - last_offset_x > 1):
-			#Find a value to insert
-			new_cutoff_list.insert ((last_offset_x + 1 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step) )
-		last_i = i"""
-    cutoff_list = []
-    for i in range (int(offset_range[0]), int(offset_range[1])+1):
-        cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step) )
-    cutoff_list = sorted (cutoff_list)
-    step_list = [cutoff_list[i+1]-cutoff_list[i] for i in range(len(cutoff_list)-1)]
+    cu = sorted(get_cutoff(depth, last_depth))
+    nt = [cu[i+1]-cu[i] for i in range(len(cu)-1)]
+    cu.pop() #Remove last element
     
-    for i, curr_step in zip(cutoff_list, step_list):
-        bin_mask = (((i - 0.02 * curr_step) <= depth) & (depth < i + 1.02 * curr_step)).astype(bool)
+    for i, curr_step in zip(cu, nt):
+        bin_mask = (((i - 0.05 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
 
         rows, cols = np.nonzero(bin_mask)
-        #masked_img = np.zeros_like(raw_img)
-        #masked_img[rows, cols, :] = raw_img[rows, cols, :]
-        #offset_x = int((i+0.5*curr_step) / (0.00001+limit_step - curr_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
-        offset_x = int((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
-        print ("offset_x: ", offset_x)
+        masked_img = np.zeros_like(raw_img)
+        masked_img[rows, cols, :] = raw_img[rows, cols, :]
+        
+        offset_x = int((i+0.5*curr_step) / (0.00001+limit_step - curr_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
         if offset_x != 0:
             #Room for Optimization: np.roll
             #https://gist.github.com/cchwala/dea03fb55d9a50660bd52e00f5691db5
-            #masked_img = np.roll(raw_img, shift=offset_x, axis=1)  # Shift along the width (x-axis)
+            masked_img = np.roll(masked_img, shift=offset_x, axis=1)  # Shift along the width (x-axis)
             #masked_mask = np.roll(masked_mask, shift=offset_x, axis=1).astype (np.bool)
             bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (np.bool)
         masked_mask = bin_mask
@@ -180,7 +161,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         
 		#As fast as you can get here
         rows, cols = np.nonzero(bin_mask)
-        result_img[rows, cols, :] = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
+        result_img[rows, cols, :] = masked_img [rows, cols, :]
         result_blank_mask |= masked_mask
 
     result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled

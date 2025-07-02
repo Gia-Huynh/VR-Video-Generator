@@ -1,0 +1,166 @@
+Worker begin from  1785  to  1795
+video_length:  318395 , begin and end:  1785 1795
+Writing file  1794 with length (in frames):  10
+ 90.0 %, Time elapsed (minutes): 0.16353896856307984 , ETA: 0.01817099650700887 , Estimated Total Time (minutes): 0.1817099650700887
+ffmpeg pipe write time:  0.06300854682922363
+Worker ending
+Timer unit: 1e-07 s
+
+Total time: 9.74406 s
+File: L:\JAV Segmentation 2025\PredictAndGenerate.py
+Function: left_side_sbs at line 108
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+   108                                           def left_side_sbs(raw_img, inference_queue, result_queue):
+   109                                               #Reuse old depth if frame is not much different shenanigan.
+   110                                               global last_depth_flag
+   111                                               global last_frame
+   112                                               global last_depth
+   113                                               #Used to be  (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (5, 5)), cv2.stackBlur(last_frame, (3, 3)))) < 6000000)
+   114        10    1351883.0 135188.3      1.4      if (last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(last_frame, (3, 3)))) < 2000000) and (last_depth_flag == True):
+   115                                                   depth = last_depth
+   116                                               else:     
+   117        10     676216.0  67621.6      0.7          last_frame = raw_img.copy()
+   118        10      12489.0   1248.9      0.0          inference_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
+   119        10   66472442.0    7e+06     68.2          depth = result_queue.get()
+   120        10        210.0     21.0      0.0          if (last_depth_flag == False):
+   121         5     206673.0  41334.6      0.2              depth = depth*0.6 + last_depth*0.4
+   122         5      63768.0  12753.6      0.1              last_depth = depth.copy()
+   123         5         42.0      8.4      0.0              last_depth_flag = True
+   124                                                   else:
+   125         5         37.0      7.4      0.0              last_depth_flag = False
+   126         5      94726.0  18945.2      0.1              last_depth = depth.copy()
+   127                                           
+   128                                               #Normal image fill
+   129        10       1583.0    158.3      0.0      result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
+   130        10        753.0     75.3      0.0      result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
+   131                                               #Edge blurring DOES NOT CONSUME CPU TIME MUCH.
+   132        10        692.0     69.2      0.0      edge_fill_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
+   133        10      20687.0   2068.7      0.0      limit_step = math.ceil(depth.max())
+   134        10        320.0     32.0      0.0      offset_range = [offset_bg * raw_img.shape[0], offset_fg * raw_img.shape[0] * limit_step/14.0]
+   135        10         58.0      5.8      0.0      max_depth = limit_step
+   136        10        283.0     28.3      0.0      kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
+   137        10       2091.0    209.1      0.0      kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
+   138                                               #Threshold values
+   139        10    3542212.0 354221.2      3.6      cu = sorted(get_cutoff(depth, last_depth))
+   140        10        835.0     83.5      0.0      nt = [cu[i+1]-cu[i] for i in range(len(cu)-1)]
+   141        10         99.0      9.9      0.0      cu.pop() #Remove last element
+   142                                               
+   143        70       1631.0     23.3      0.0      for i, curr_step in zip(cu, nt):
+   144        60    2190072.0  36501.2      2.2          bin_mask = (((i - 0.05 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
+   145                                           
+   146        60    3102173.0  51702.9      3.2          rows, cols = np.nonzero(bin_mask)
+   147        60     562893.0   9381.5      0.6          masked_img = np.zeros_like(raw_img)
+   148        60    5360216.0  89336.9      5.5          masked_img[rows, cols, :] = raw_img[rows, cols, :]
+   149                                                   
+   150        60       5070.0     84.5      0.0          offset_x = int((i+0.5*curr_step) / (0.00001+limit_step - curr_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
+   151        60        427.0      7.1      0.0          if offset_x != 0:
+   152                                                       #Room for Optimization: np.roll
+   153                                                       #https://gist.github.com/cchwala/dea03fb55d9a50660bd52e00f5691db5
+   154        60     773394.0  12889.9      0.8              masked_img = np.roll(masked_img, shift=offset_x, axis=1)  # Shift along the width (x-axis)
+   155                                                       #masked_mask = np.roll(masked_mask, shift=offset_x, axis=1).astype (np.bool)
+   156        60     470602.0   7843.4      0.5              bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (np.bool)
+   157        60      30330.0    505.5      0.0          masked_mask = bin_mask
+   158                                                   #This one is for edge filling for "close-by" objects
+   159        60        377.0      6.3      0.0          if (offset_x > 0):
+   160        30    1620647.0  54021.6      1.7             edge_fill_blank_mask |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))>0
+   161                                                   
+   162                                           		#As fast as you can get here
+   163        60    3091583.0  51526.4      3.2          rows, cols = np.nonzero(bin_mask)
+   164        60    4769582.0  79493.0      4.9          result_img[rows, cols, :] = masked_img [rows, cols, :]
+   165        60     109791.0   1829.8      0.1          result_blank_mask |= masked_mask
+   166                                           
+   167        10      27920.0   2792.0      0.0      result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
+   168        10     176749.0  17674.9      0.2      result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
+   169                                               #Fill result_img with blurred value from zero_mask
+   170        10     108250.0  10825.0      0.1      result_zero_mask = result_zero_mask.astype(bool)
+   171        30    1485976.0  49532.5      1.5      result_img[result_zero_mask] = (cv2.stackBlur
+   172        20     110088.0   5504.4      0.1                                      (np.roll
+   173        10        301.0     30.1      0.0                                       (raw_img, shift=round(offset_x/3), axis=1)
+   174        10        239.0     23.9      0.0                                      ,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
+   175                                                                               )
+   176        10         93.0      9.3      0.0                                     )[result_zero_mask]
+   177                                               #Is this line necessary?
+   178                                               #edge_fill_blank_mask = cv2.dilate(edge_fill_blank_mask.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
+   179                                           
+   180        10     592288.0  59228.8      0.6      result_img[edge_fill_blank_mask] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_blank_mask]
+   181                                           
+   182        10      15340.0   1534.0      0.0      result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
+   183        10         77.0      7.7      0.0      if last_frame is not None:
+   184        10     386365.0  38636.5      0.4          return cv2.hconcat([result_img, last_frame])
+   185                                               else:
+   186                                                   return cv2.hconcat([result_img, raw_img])
+
+Total time: 0.348124 s
+File: L:\JAV Segmentation 2025\SupportFunction.py
+Function: get_cutoff at line 86
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    86                                           def get_cutoff (depth_img, last_depth):
+    87                                               #Getting cutoff locations from depth_img    
+    88                                               #DO NOT FUCKING MODIFY THIS FUNCTION, WE HAVE TESTED IT A LOT IN THE PAST AND FUCKING LEAVE IT BE
+    89        10        179.0     17.9      0.0      step_width = 0.125
+    90        10      15651.0   1565.1      0.4      bin_range = np.arange(0, depth_img.max(), step_width)
+    91        10    1893026.0 189302.6     54.4      profile_temp_var = np.digitize (depth_img, bin_range)
+    92        10    1263306.0 126330.6     36.3      a, bin_count = np.unique(profile_temp_var, return_counts = True)
+    93        10        352.0     35.2      0.0      bin_count_avg = np.zeros (bin_count.shape)
+    94                                           
+    95      1119       2411.0      2.2      0.1      for j in range (1, len(bin_count)-1):
+    96      1109      46408.0     41.8      1.3          bin_count_avg [j] = 0.33 * bin_count[j] + 0.33 * bin_count[j-1] + 0.33 * bin_count[j+1]
+    97        10        291.0     29.1      0.0      bin_count_avg [0] = 0.5 * bin_count[0] + 0.5 * bin_count[j+1]
+    98        10        329.0     32.9      0.0      bin_count_avg [len(bin_count)-1] = 0.5 * bin_count[len(bin_count)-1] + 0.5 * bin_count[len(bin_count)-2]
+    99        10         41.0      4.1      0.0      bin_count = bin_count_avg
+   100                                               
+   101        10        376.0     37.6      0.0      bin_label = bin_range[a-1]
+   102                                               
+   103        10         42.0      4.2      0.0      Result_Cutoff_List = []
+   104        10         28.0      2.8      0.0      Max = -1
+   105        10         18.0      1.8      0.0      MaxIdx = -1
+   106        10         61.0      6.1      0.0      assert (len(bin_label) == len(bin_count))
+   107      1119       2653.0      2.4      0.1      for i in range (1, len(bin_label)-1):
+   108      1109       3198.0      2.9      0.1          label = bin_label[i+1]
+   109      1109       2750.0      2.5      0.1          count = bin_count[i]
+   110      1109       2586.0      2.3      0.1          if (Max == -1):
+   111        10         36.0      3.6      0.0              Max = count
+   112        10         21.0      2.1      0.0              MaxIdx = i
+   113                                                   else:
+   114      1099       2354.0      2.1      0.1              if (Max < count):
+   115       410        711.0      1.7      0.0                  Max = count
+   116       410        712.0      1.7      0.0                  MaxIdx = i
+   117                                                       else:
+   118                                           UnicodeEncodeError - help wanted for a fix
+   119       689       4560.0      6.6      0.1                      ((count *(1 - 0.0125*(Max/count)) < bin_count[i+1] * 0.96) 
+   120        88        535.0      6.1      0.0                           and (count *(1 - 0.0125*(Max/count)) < bin_count[i-1] * 0.99)
+   121        62        501.0      8.1      0.0                        and (i - MaxIdx >= round(0.5/step_width - 1)))
+   122                                           UnicodeEncodeError - help wanted for a fix
+   123       639       4074.0      6.4      0.1                      or ((count *(1.01 - 0.01*(Max/count)) < bin_count[i+1] * 0.93)
+   124        15         91.0      6.1      0.0                           and (count *(1.01 - 0.01*(Max/count)) < bin_count[i-1] * 0.8)
+   125                                                                    )
+   126                                                               ):
+   127        50        189.0      3.8      0.0                      Result_Cutoff_List.append (label)
+   128        50         93.0      1.9      0.0                      Max = count
+   129        50         91.0      1.8      0.0                      MaxIdx = i
+   130                                           
+   131                                               #Result_Cutoff_List = sorted (Result_Cutoff_List)
+   132        10      49755.0   4975.5      1.4      Result_Cutoff_List.append(depth_img.max())
+   133        10        117.0     11.7      0.0      Result_Cutoff_List.insert (0, 0)
+   134        10        331.0     33.1      0.0      Result_Cutoff_List = sorted (Result_Cutoff_List)
+   135                                               
+   136        60        290.0      4.8      0.0      for i in range (len(Result_Cutoff_List)-2, 0, -1):
+   137        50        435.0      8.7      0.0          if abs(Result_Cutoff_List[i] - Result_Cutoff_List[i+1])<1:
+   138         7         36.0      5.1      0.0              del Result_Cutoff_List[i]
+   139                                               global last_cutoff
+   140        10         57.0      5.7      0.0      if (last_cutoff is not None):
+   141         9     182376.0  20264.0      5.2          if (np.linalg.norm(depth_img - last_depth) < 500):
+   142         9        134.0     14.9      0.0              if (len(last_cutoff) >= len(Result_Cutoff_List)):
+   143         9         22.0      2.4      0.0                  return last_cutoff
+   144                                                       else:
+   145                                                           pass
+   146                                                   else:
+   147                                                       pass
+   148                                                       #print ("Norm Declined: ", np.linalg.norm(depth_img - last_depth))
+   149         1          7.0      7.0      0.0      last_cutoff = Result_Cutoff_List
+   150         1          2.0      2.0      0.0      return Result_Cutoff_List
+
