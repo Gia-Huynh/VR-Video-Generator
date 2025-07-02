@@ -1,0 +1,4 @@
+vitb depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth cuda:0
+Torch model loading into device name:  NVIDIA GeForce RTX 2080 Ti
+Model loaded, trying to infer an image...
+Model loaded

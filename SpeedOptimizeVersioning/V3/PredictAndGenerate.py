@@ -19,68 +19,29 @@ from moviepy import ImageSequenceClip
 #Support Functions
 from SupportFunction import dump_line_profile_to_csv, get_length, get_cutoff, load_model, load_and_set_video, random_sleep, redirrect_stdout, print_flush, remove_all_file
 import SupportFunction as SpF
-import argparse
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--DebugDir',   type=str, default="Debug/")
-parser.add_argument('--SubClipDir', type=str, default="D:/TEMP/JAV Subclip/")
-parser.add_argument('--VideoDir',   type=str, default="Videos/She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4")
-parser.add_argument('--OutputDir',  type=str, default="SBS Maria Nagai Harder.mp4")
-parser.add_argument('--encoder',    type=str, default='vitb')
-parser.add_argument('--encoder_path',
-                                    type=str, default='depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth')
-parser.add_argument('--offset_fg',  type=float, default=0.0125)
-parser.add_argument('--offset_bg',  type=float, default=-0.025)
-parser.add_argument('--Num_Workers',
-                                    type=int, default=30)
-parser.add_argument('--num_gpu',    type=int, default=1)
-parser.add_argument('--Num_GPU_Workers',
-                                    type=int, default=3)
-parser.add_argument('--Max_Frame_Count',
-                                    type=int, default=20)
-parser.add_argument('--start_frame',
-                                    type=int, default=82800)
-parser.add_argument('--end_frame',
-                                    type=int, default=82800 + 3600) #82800 + 1800 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
-
-args = parser.parse_args()
-
-DebugDir = args.DebugDir
-SubClipDir = args.SubClipDir
-VideoDir = args.VideoDir
-OutputDir = args.OutputDir
-encoder = args.encoder
-encoder_path = args.encoder_path
-offset_fg = args.offset_fg
-offset_bg = args.offset_bg
-Num_Workers = args.Num_Workers
-num_gpu = args.num_gpu
-Num_GPU_Workers = args.Num_GPU_Workers
-Max_Frame_Count = args.Max_Frame_Count
-start_frame = args.start_frame
-end_frame = args.end_frame
-
-"""DebugDir = "Debug/"
-SubClipDir = "D:/TEMP/JAV Subclip/" #"Debug/"
-VideoDir = "Videos/She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4"
-OutputDir = "SBS Maria Nagai Harder.mp4"
+DebugDir = "Debug/"
+SubClipDir = "Debug/" #"D:/TEMP/JAV Subclip/"
+VideoDir = "Videos/SORA-343.mp4"
+OutputDir = "SBS SORA-343.mp4"
 encoder = 'vitb'
 encoder_path = f'depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth'
-
-offset_fg = 0.0125 #0.009 #0.0117
-offset_bg = 0.025 * -1
-
-Num_Workers = 30
-num_gpu = 1
-Num_GPU_Workers = 3 #Total
-Max_Frame_Count = 20
-start_frame = 82800 #82800 #0
-end_frame = 82800 + 3600 #82800 + 1800 #9999999999999, 27000 is 15 minutes, 9000 5 minutes"""
-#if smaller than video length, will be clipped off
 
 if __name__ == "__main__":
     remove_all_file (DebugDir)
     remove_all_file (SubClipDir)
+    
+offset_fg = 0.0117 #0.009
+offset_bg = 0.0117 * -1 #-0.009 #0117
+
+Num_Workers = 1
+num_gpu = 1
+Num_GPU_Workers = 1 #Total
+Max_Frame_Count = 100
+start_frame = 0
+end_frame = 9999999999999 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
+#if smaller than video length, will be clipped off
+
     
 #Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
 #Options in [input options] are applied to the input. Options in [output options] are applied to the output.
@@ -117,7 +78,8 @@ elif (ffmpeg_device == 'nvidia'):
                                      '-preset', ffmpeg_preset,
                                      '-multipass', ffmpeg_multipass,
                                      '-tune', ffmpeg_tune,
-                                     '-rc-lookahead', '4']
+                                     '-rc-lookahead', '8']
+
 
 # Initialize logging
 logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
@@ -195,29 +157,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step) )
     cutoff_list = sorted (cutoff_list)
     step_list = [cutoff_list[i+1]-cutoff_list[i] for i in range(len(cutoff_list)-1)]
-    color_list = [
-        (255, 0, 0),      # Red
-        (0, 255, 0),      # Green
-        (0, 0, 255),      # Blue
-        (255, 255, 0),    # Yellow
-        (255, 0, 255),    # Magenta
-        (0, 255, 255),    # Cyan
-        (255, 165, 0),    # Orange
-        (128, 0, 128),    # Purple
-        (0, 128, 128),    # Teal
-        (128, 128, 0),    # Olive
-        (0, 0, 128),      # Navy
-        (128, 0, 0),      # Maroon
-        (0, 128, 0),      # Dark Green
-        (192, 192, 192),  # Silver
-        (128, 128, 128),  # Gray
-        (255, 105, 180),  # Hot Pink
-        (173, 216, 230),  # Light Blue
-        (244, 164, 96),   # Sandy Brown
-        (154, 205, 50),   # Yellow Green
-        (210, 105, 30),   # Chocolate
-    ]
-    color_t = 0
+    
     for i, curr_step in zip(cutoff_list, step_list):
         bin_mask = (((i - 0.02 * curr_step) <= depth) & (depth < i + 1.02 * curr_step)).astype(bool)
 
@@ -226,7 +166,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         #masked_img[rows, cols, :] = raw_img[rows, cols, :]
         #offset_x = int((i+0.5*curr_step) / (0.00001+limit_step - curr_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
         offset_x = int((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
-        #print ("offset_x: ", offset_x)
+        print ("offset_x: ", offset_x)
         if offset_x != 0:
             #Room for Optimization: np.roll
             #https://gist.github.com/cchwala/dea03fb55d9a50660bd52e00f5691db5
@@ -240,12 +180,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         
 		#As fast as you can get here
         rows, cols = np.nonzero(bin_mask)
-        #Color injecting:
         result_img[rows, cols, :] = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
-        #shaded = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :].astype(np.float32) * 0.65 + 0.35 * np.array(color_list[color_t%3])
-        #color_t = color_t+1
-        #shaded = np.clip(shaded, 0, 255).astype(np.uint8)
-        #result_img[rows, cols, :] = shaded
         result_blank_mask |= masked_mask
 
     result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
@@ -282,10 +217,10 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
         ffmpeg_proc = None
         last_i = begin
         FrameList = []
-        #profiler = LineProfiler()
-        #profiler.add_function(left_side_sbs)
-        #profiler.add_function(get_cutoff)
-        #profiler.enable()
+        profiler = LineProfiler()
+        profiler.add_function(left_side_sbs)
+        profiler.add_function(get_cutoff)
+        profiler.enable()
         for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
             if (raw_img is not None):
@@ -325,10 +260,10 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 last_i = i+1
                 FrameList = []
                 gc.collect()
-                #print_flush ("Worker ending")
-                #profiler.disable()
-                #profiler.print_stats()
-                #return 0              
+                print_flush ("Worker ending")
+                profiler.disable()
+                profiler.print_stats()
+                return 0              
         print_flush ("Worker ending")
         try:
             #out_file.close()
@@ -363,12 +298,12 @@ if __name__ == "__main__":
     for j in range (0, Num_GPU_Workers):
         inference_workers[j].start()
         random_sleep ((0,1), "staggered model load")
-    """nibba_woka (1785, 1795, inference_queue_list[0], result_queue_list[0])
+    nibba_woka (1785, 1795, inference_queue_list[0], result_queue_list[0])
     for inference_queue in inference_queue_list:
         inference_queue.put(None)        
     for w in inference_workers:
         w.join()
-    """
+    """asdasd
     workers = []
     random_sleep ((0, 1), "Random sleep for model loading")
     for idx, i in enumerate(frame_indices):
@@ -385,4 +320,4 @@ if __name__ == "__main__":
     for w in inference_workers:
         w.join()
     from Combine_Clips import combine_clips
-    combine_clips (SubClipDir, VideoDir, OutputDir)
+    combine_clips (SubClipDir, VideoDir, OutputDir) """
