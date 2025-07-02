@@ -20,8 +20,8 @@ import SupportFunction as SpF
 
 DebugDir = "Debug/"
 SubClipDir = "D:/TEMP/JAV Subclip/"
-VideoDir = "Videos/Tifa_DoggyEvening_Twitter.mp4"
-OutputDir = "SBS V2 Tifa_DoggyEvening_Twitter.mp4"
+VideoDir = "Videos/Biểu cảm siêu dâm của em gái với cặp vú cực phẩm.mp4"
+OutputDir = "SBS Biểu cảm siêu dâm của em gái với cặp vú cực phẩm.mp4"
 encoder = 'vitb'
 encoder_path = f'depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth'
 
@@ -29,8 +29,8 @@ if __name__ == "__main__":
     remove_all_file (DebugDir)
     remove_all_file (SubClipDir)
     
-offset_fg = 0.0108 #0.009
-offset_bg = 0.0108 #-0.009 #0117
+offset_fg = 0.0117 #0.009
+offset_bg = 0.0117 * -1 #-0.009 #0117
 
 Num_Workers = 24
 num_gpu = 1
