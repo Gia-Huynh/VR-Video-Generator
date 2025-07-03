@@ -22,26 +22,23 @@ import SupportFunction as SpF
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--DebugDir',   type=str, default="Debug/")
-parser.add_argument('--SubClipDir', type=str, default="D:/TEMP/JAV Subclip/")
-parser.add_argument('--VideoDir',   type=str, default="Videos/She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4")
-parser.add_argument('--OutputDir',  type=str, default="SBS Maria Nagai Harder.mp4")
-parser.add_argument('--encoder',    type=str, default='vitb')
+parser.add_argument('--DebugDir',   type=str,   default="Debug/")
+parser.add_argument('--SubClipDir', type=str,   default="D:/TEMP/JAV Subclip/")
+parser.add_argument('--VideoDir',   type=str,   default="Videos/She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4")
+parser.add_argument('--OutputDir',  type=str,   default="SBS Maria Nagai.mp4")
+parser.add_argument('--encoder',    type=str,   default='vitb')
 parser.add_argument('--encoder_path',
-                                    type=str, default='depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth')
+                                    type=str,   default='depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth')
 parser.add_argument('--offset_fg',  type=float, default=0.0125)
 parser.add_argument('--offset_bg',  type=float, default=-0.025)
-parser.add_argument('--Num_Workers',
-                                    type=int, default=30)
-parser.add_argument('--num_gpu',    type=int, default=1)
+parser.add_argument('--Num_Workers',type=int,   default=30)
+parser.add_argument('--num_gpu',    type=int,   default=1)
 parser.add_argument('--Num_GPU_Workers',
-                                    type=int, default=3)
+                                    type=int,   default=3)
 parser.add_argument('--Max_Frame_Count',
-                                    type=int, default=20)
-parser.add_argument('--start_frame',
-                                    type=int, default=82800)
-parser.add_argument('--end_frame',
-                                    type=int, default=82800 + 3600) #82800 + 1800 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
+                                    type=int,   default=30)
+parser.add_argument('--start_frame',type=int,   default=0)
+parser.add_argument('--end_frame',  type=int,   default=9999999999999) #82800 + 900 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
 
 args = parser.parse_args()
 
@@ -191,8 +188,10 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
 			new_cutoff_list.insert ((last_offset_x + 1 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step) )
 		last_i = i"""
     cutoff_list = []
-    for i in range (int(offset_range[0]), int(offset_range[1])+1):
-        cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step) )
+    for i in range (int(offset_range[0]), -3, 2):
+        cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
+    for i in range (-3, int(offset_range[1])):
+        cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
     cutoff_list = sorted (cutoff_list)
     step_list = [cutoff_list[i+1]-cutoff_list[i] for i in range(len(cutoff_list)-1)]
     color_list = [
@@ -375,7 +374,7 @@ if __name__ == "__main__":
         inference_workers_idx = idx % Num_GPU_Workers
         worker = Process(target = nibba_woka, args = (i, i + step, inference_queue_list[inference_workers_idx], result_queue_list[inference_workers_idx]))
         print ("idx: ", idx,", GPU Worker: ",inference_workers_idx, ", worker: ", worker)
-        random_sleep ((1, 2), "Staggered worker start") #There is a reason for this, Don't mess with it
+        random_sleep ((0, 1), "Staggered worker start") #There is a reason for this, Don't mess with it
         worker.start()
         workers.append(worker)
     for w in workers:
