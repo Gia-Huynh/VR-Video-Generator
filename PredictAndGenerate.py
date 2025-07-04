@@ -24,21 +24,21 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--DebugDir',   type=str,   default="Debug/")
 parser.add_argument('--SubClipDir', type=str,   default="D:/TEMP/JAV Subclip/")
-parser.add_argument('--VideoDir',   type=str,   default="Videos/She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4")
-parser.add_argument('--OutputDir',  type=str,   default="SBS Maria Nagai.mp4")
+parser.add_argument('--VideoDir',   type=str,   default="Videos/I went to clean my stepson.mp4")
+parser.add_argument('--OutputDir',  type=str,   default="SBS Color I went to clean my stepson.mp4")
 parser.add_argument('--encoder',    type=str,   default='vitb')
 parser.add_argument('--encoder_path',
                                     type=str,   default='depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth')
 parser.add_argument('--offset_fg',  type=float, default=0.0125)
-parser.add_argument('--offset_bg',  type=float, default=-0.025)
-parser.add_argument('--Num_Workers',type=int,   default=30)
+parser.add_argument('--offset_bg',  type=float, default=-0.0225)
+parser.add_argument('--Num_Workers',type=int,   default=16)
 parser.add_argument('--num_gpu',    type=int,   default=1)
 parser.add_argument('--Num_GPU_Workers',
                                     type=int,   default=3)
 parser.add_argument('--Max_Frame_Count',
-                                    type=int,   default=30)
-parser.add_argument('--start_frame',type=int,   default=0)
-parser.add_argument('--end_frame',  type=int,   default=9999999999999) #82800 + 900 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
+                                    type=int,   default=50)
+parser.add_argument('--start_frame',type=int,   default=3000)
+parser.add_argument('--end_frame',  type=int,   default=3320) #82800 + 450 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
 
 args = parser.parse_args()
 
@@ -123,6 +123,7 @@ logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemo
 last_depth_flag = True
 last_depth = None
 last_frame = None
+print_once = False
 def inference_worker (in_queue, out_queue, DEVICE):
     redirrect_stdout(DebugDir + f"inference_worker_{os.getpid()}.txt")
     print_flush (encoder, encoder_path, DEVICE)
@@ -145,6 +146,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     global last_depth_flag
     global last_frame
     global last_depth
+    global print_once
     #Used to be  (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (5, 5)), cv2.stackBlur(last_frame, (3, 3)))) < 6000000)
     if (last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(last_frame, (3, 3)))) < 2000000) and (last_depth_flag == True):
         depth = last_depth
@@ -155,7 +157,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         if (last_depth_flag == False):
             depth = depth*0.6 + last_depth*0.4
             last_depth = depth.copy()
-            last_depth_flag = True
+            #last_depth_flag = True
         else:
             last_depth_flag = False
             last_depth = depth.copy()
@@ -163,8 +165,10 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     #Normal image fill
     result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
     result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
+    shaded_result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
     #Edge blurring DOES NOT CONSUME CPU TIME MUCH.
-    edge_fill_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
+    edge_fill_positive = np.zeros(raw_img.shape[:2], dtype=bool)
+    edge_fill_negative = np.zeros(raw_img.shape[:2], dtype=bool)
     limit_step = math.ceil(depth.max())
     offset_range = [offset_bg * raw_img.shape[0], offset_fg * raw_img.shape[0] * limit_step/14.0]
     max_depth = limit_step
@@ -188,43 +192,50 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
 			new_cutoff_list.insert ((last_offset_x + 1 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step) )
 		last_i = i"""
     cutoff_list = []
-    for i in range (int(offset_range[0]), -3, 2):
+    for i in range (int(offset_range[0]), -1, 2): #Cai nay giup save 20% time, 550 phut xuong 450 phut
         cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
-    for i in range (-3, int(offset_range[1])):
+    #0
+    cutoff_list.append ((0 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
+    for i in range (1, int(offset_range[1]), 2):
         cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
+    cutoff_list.append (limit_step)
     cutoff_list = sorted (cutoff_list)
+    cutoff_list [0] = 0
     step_list = [cutoff_list[i+1]-cutoff_list[i] for i in range(len(cutoff_list)-1)]
+
+    if print_once == False:
+        for i, curr_step in zip(cutoff_list, step_list):
+            t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
+            print_flush (int(t),' ',round(t),' ',t)
+
     color_list = [
-        (255, 0, 0),      # Red
-        (0, 255, 0),      # Green
-        (0, 0, 255),      # Blue
-        (255, 255, 0),    # Yellow
-        (255, 0, 255),    # Magenta
-        (0, 255, 255),    # Cyan
-        (255, 165, 0),    # Orange
-        (128, 0, 128),    # Purple
-        (0, 128, 128),    # Teal
-        (128, 128, 0),    # Olive
-        (0, 0, 128),      # Navy
-        (128, 0, 0),      # Maroon
-        (0, 128, 0),      # Dark Green
-        (192, 192, 192),  # Silver
-        (128, 128, 128),  # Gray
-        (255, 105, 180),  # Hot Pink
-        (173, 216, 230),  # Light Blue
-        (244, 164, 96),   # Sandy Brown
-        (154, 205, 50),   # Yellow Green
-        (210, 105, 30),   # Chocolate
+        (255,   0,   0), #red
+        (240,  15,   0),
+        (225,  30,   0),
+        (210,  45,   0),
+        (195,  60,   0),
+        (180,  75,   0),
+        (165,  90,   0),
+        (150, 105,   0),
+        (135, 120,   0),
+        (120, 135,   0),
+        (105, 150,   0),
+        ( 90, 165,   0),
+        ( 75, 180,   0),
+        ( 60, 195,   0),
+        ( 45, 210,   0),
+        ( 30, 225,   0),
+        (  0, 255,   0), #green
     ]
     color_t = 0
     for i, curr_step in zip(cutoff_list, step_list):
-        bin_mask = (((i - 0.02 * curr_step) <= depth) & (depth < i + 1.02 * curr_step)).astype(bool)
+        bin_mask = (((i - 0.075 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
 
         rows, cols = np.nonzero(bin_mask)
         #masked_img = np.zeros_like(raw_img)
         #masked_img[rows, cols, :] = raw_img[rows, cols, :]
         #offset_x = int((i+0.5*curr_step) / (0.00001+limit_step - curr_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
-        offset_x = int((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
+        offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
         #print ("offset_x: ", offset_x)
         if offset_x != 0:
             #Room for Optimization: np.roll
@@ -234,39 +245,65 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
             bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (np.bool)
         masked_mask = bin_mask
         #This one is for edge filling for "close-by" objects
-        if (offset_x > 0):
-           edge_fill_blank_mask |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, -2, 1]], dtype=np.int16))>0
+        if (offset_x > 0): #From >0
+           edge_fill_positive |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[-2, 1, 1]], dtype=np.int16))>0
+        if (offset_x < 0):
+           edge_fill_negative |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, 1, -2]], dtype=np.int16))>0
         
-		#As fast as you can get here
+        #As fast as you can get here
         rows, cols = np.nonzero(bin_mask)
-        #Color injecting:
         result_img[rows, cols, :] = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
-        #shaded = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :].astype(np.float32) * 0.65 + 0.35 * np.array(color_list[color_t%3])
-        #color_t = color_t+1
-        #shaded = np.clip(shaded, 0, 255).astype(np.uint8)
-        #result_img[rows, cols, :] = shaded
+
+        #Color injecting:
+        shaded = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :].astype(np.float32) * 0.65 + 0.35 * np.array(color_list[color_t%len(color_list)])
+        color_t = color_t+1
+        shaded = np.clip(shaded, 0, 255).astype(np.uint8)
+        shaded_result_img[rows, cols, :] = shaded
+
         result_blank_mask |= masked_mask
 
     result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
     result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
     #Fill result_img with blurred value from zero_mask
     result_zero_mask = result_zero_mask.astype(bool)
-    result_img[result_zero_mask] = (cv2.stackBlur
+    color = (0,0,0) #black
+    """shaded_result_img[result_zero_mask] = ((cv2.stackBlur
                                     (np.roll
                                      (raw_img, shift=round(offset_x/3), axis=1)
                                     ,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
                                     )
-                                   )[result_zero_mask]
+                                   ) * 0.4 + 0.6 * np.array(color))[result_zero_mask]
+    result_img[result_zero_mask] = (cv2.stackBlur
+                                    (np.roll
+                                     (raw_img, shift=round(offset_x/3), axis=1)
+                                    ,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
+                                    ))[result_zero_mask]"""
+    shaded_result_img[result_zero_mask] = ((cv2.stackBlur
+                                            (raw_img
+                                            ,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
+                                            )
+                                   ) * 0.4 + 0.6 * np.array(color))[result_zero_mask]
+    result_img[result_zero_mask] = (cv2.stackBlur
+                                            (raw_img
+                                            ,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
+                                    ))[result_zero_mask]
     #Is this line necessary?
-    #edge_fill_blank_mask = cv2.dilate(edge_fill_blank_mask.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
+    #edge_fill_positive = cv2.dilate(edge_fill_positive.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
 
-    result_img[edge_fill_blank_mask] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_blank_mask]
+    color = (0,255,255) #cyan
+    shaded_result_img[edge_fill_positive] = (cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0))) * 0.5 + np.array(color) * 0.5)[edge_fill_positive]
+    color = (255,255,0) #yellow
+    shaded_result_img[edge_fill_negative] = (cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0))) * 0.5 + np.array(color) * 0.5)[edge_fill_negative]
+
+    result_img[edge_fill_positive] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_positive]
+    result_img[edge_fill_negative] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_negative]
 
     result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
+    print_once = True
     if last_frame is not None:
-        return cv2.hconcat([result_img, last_frame])
+        return cv2.hconcat([shaded_result_img, result_img])
     else:
-        return cv2.hconcat([result_img, raw_img])
+        return cv2.hconcat([shaded_result_img, result_img])
 
 def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_Frame_Count, file_path = VideoDir):
     #Silence all output of child process
@@ -384,4 +421,5 @@ if __name__ == "__main__":
     for w in inference_workers:
         w.join()
     from Combine_Clips import combine_clips
-    combine_clips (SubClipDir, VideoDir, OutputDir)
+    combine_clips (SubClipDir, VideoDir, OutputDir, just_combine = 0)
+    
