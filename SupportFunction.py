@@ -37,11 +37,12 @@ def dump_line_profile_to_csv(profiler, filename="line_profile_output.csv"):
 
 
 def get_length(filename):
-    result = subprocess.run(["ffprobe", "-v", "error",  "-count_frames", "-show_entries",
-                            "-of", "csv=p=0", filename],
+    result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                            "-of", "default=noprint_wrappers=1:nokey=1", filename],
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT)
-    return float(result.stdout)
+        stderr=subprocess.STDOUT,
+        creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+    return float(result.stdout.decode().strip())
 
 def remove_all_file (dir_path):
     if os.path.isdir(dir_path) and os.listdir(dir_path):  # check not empty
