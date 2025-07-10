@@ -169,3 +169,6 @@ cython_debug/
 /Debug
 /Debug
 *.mp4
+DockerSex/Check_Clips.py
+/DockerSex
+input_list.txt

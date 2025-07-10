@@ -15,30 +15,42 @@ import subprocess
 import multiprocessing as mp
 from multiprocessing import shared_memory
 from multiprocessing import Process, Queue, set_start_method
-from moviepy import ImageSequenceClip
 #Support Functions
 from SupportFunction import dump_line_profile_to_csv, get_length, get_cutoff, load_model, load_and_set_video, random_sleep, redirrect_stdout, print_flush, remove_all_file
 import SupportFunction as SpF
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--DebugDir',   type=str,   default="Debug/")
-parser.add_argument('--SubClipDir', type=str,   default="D:/TEMP/JAV Subclip/")
-parser.add_argument('--VideoDir',   type=str,   default="Videos/Maria Nagai.mp4")
-parser.add_argument('--OutputDir',  type=str,   default="SBS Maria Nagai.mp4")
-parser.add_argument('--encoder',    type=str,   default='vitb')
-parser.add_argument('--encoder_path',
-                                    type=str,   default='depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth')
-parser.add_argument('--offset_fg',  type=float, default=0.0125)
-parser.add_argument('--offset_bg',  type=float, default=-0.0225)
-parser.add_argument('--Num_Workers',type=int,   default=20)
-parser.add_argument('--num_gpu',    type=int,   default=1)
-parser.add_argument('--Num_GPU_Workers',
-                                    type=int,   default=3)
-parser.add_argument('--Max_Frame_Count',
-                                    type=int,   default=20)
-parser.add_argument('--start_frame',type=int,   default=0)
-parser.add_argument('--end_frame',  type=int,   default=9999999999999) #82800 + 450 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
+parser.add_argument('--DebugDir',   type=str,
+                                    default="Debug/")
+parser.add_argument('--SubClipDir', type=str,
+                                    default="D:/TEMP/JAV Subclip/")
+parser.add_argument('--VideoDir',   type=str,
+                                    default="Videos/SW-158.mp4")
+parser.add_argument('--OutputDir',  type=str,
+                                    default="SBS SW-158.mp4")
+parser.add_argument('--encoder',    type=str,
+                                    default='vitb')
+parser.add_argument('--encoder_path',type=str,
+                                    default='depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth')
+parser.add_argument('--offset_fg',  type=float,
+                                    default=0.04) #0.0125 chưa đủ đô
+parser.add_argument('--offset_bg',  type=float,
+                                    default=-0.04) #-0.0225 chưa đủ đô
+parser.add_argument('--Num_Workers',type=int,
+                                    default=16)
+parser.add_argument('--num_gpu',    type=int,
+                                    default=1)
+parser.add_argument('--Num_GPU_Workers',type=int,
+                                    default=3)
+parser.add_argument('--Max_Frame_Count',type=int,
+                                    default=30)
+parser.add_argument('--start_frame',type=int,
+                                    default=0)
+parser.add_argument('--end_frame',  type=int,
+                                    default=9999999999999) #82800 + 450 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
+parser.add_argument('--repair_mode',type=int,
+                                    default=1)
 
 args = parser.parse_args()
 
@@ -56,28 +68,17 @@ Num_GPU_Workers = args.Num_GPU_Workers
 Max_Frame_Count = args.Max_Frame_Count
 start_frame = args.start_frame
 end_frame = args.end_frame
+repair_mode = args.repair_mode
 
-"""DebugDir = "Debug/"
-SubClipDir = "D:/TEMP/JAV Subclip/" #"Debug/"
-VideoDir = "Videos/She s A Beautiful Female Teacher, The Homeroom Teacher, Advisor To Our Team Sports, And My Lover Maria Nagai (1080).mp4"
-OutputDir = "SBS Maria Nagai Harder.mp4"
-encoder = 'vitb'
-encoder_path = f'depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth'
+if (offset_bg >= 0) and (offset_bg * offset_fg > 0):
+    offset_bg = offset_bg * (-1)
 
-offset_fg = 0.0125 #0.009 #0.0117
-offset_bg = 0.025 * -1
-
-Num_Workers = 30
-num_gpu = 1
-Num_GPU_Workers = 3 #Total
-Max_Frame_Count = 20
-start_frame = 82800 #82800 #0
-end_frame = 82800 + 3600 #82800 + 1800 #9999999999999, 27000 is 15 minutes, 9000 5 minutes"""
 #if smaller than video length, will be clipped off
 
 if __name__ == "__main__":
     remove_all_file (DebugDir)
-    remove_all_file (SubClipDir)
+    if (repair_mode == 0):
+        remove_all_file (SubClipDir)
     
 #Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
 #Options in [input options] are applied to the input. Options in [output options] are applied to the output.
@@ -192,26 +193,6 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
             t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
             print_flush (t,' ',round(t),' ',int(t))
 
-    """color_list = [
-        (255,   0,   0), #red
-        (240,  15,   0),
-        (225,  30,   0),
-        (210,  45,   0),
-        (195,  60,   0),
-        (180,  75,   0),
-        (165,  90,   0),
-        (150, 105,   0),
-        (135, 120,   0),
-        (120, 135,   0),
-        (105, 150,   0),
-        ( 90, 165,   0),
-        ( 75, 180,   0),
-        ( 60, 195,   0),
-        ( 45, 210,   0),
-        ( 30, 225,   0),
-        (  0, 255,   0), #green
-    ]
-    color_t = 0"""
     for i, curr_step in zip(cutoff_list, step_list):
         bin_mask = (((i - 0.075 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
 
@@ -222,7 +203,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
         #print ("offset_x: ", offset_x)
         if offset_x != 0:
-            bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (np.bool)
+            bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)
         masked_mask = bin_mask
         #This one is for edge filling for "close-by" objects
         if (offset_x > 0): #From >0
@@ -246,17 +227,7 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
     #Fill result_img with blurred value from zero_mask
     result_zero_mask = result_zero_mask.astype(bool)
-    """color = (0,0,0) #black
-    shaded_result_img[result_zero_mask] = (cv2.stackBlur
-                                            (raw_img
-                                            ,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
-                                            )
-                                            )[result_zero_mask]
-    shaded_result_img[result_zero_mask] = ((cv2.stackBlur
-                                            (shaded_result_img
-                                            ,(limit_step, round(limit_step/8)*2 + 1)
-                                            )
-                                           ) * 0.4 + 0.6 * np.array(color))[result_zero_mask]"""
+
     result_img[result_zero_mask] = (cv2.stackBlur
                                             (raw_img
                                             ,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
@@ -268,24 +239,19 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
     #Is this line necessary?
     #edge_fill_positive = cv2.dilate(edge_fill_positive.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
 
-    """color = (0,255,255) #cyan
-    shaded_result_img[edge_fill_positive] = (cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0))) * 0.5 + np.array(color) * 0.5)[edge_fill_positive]
-    color = (255,255,0) #yellow
-    shaded_result_img[edge_fill_negative] = (cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0))) * 0.5 + np.array(color) * 0.5)[edge_fill_negative]
-    """
+
     result_img[edge_fill_positive] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_positive]
     result_img[edge_fill_negative] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_negative]
 
     result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
     print_once = True
     if last_frame is not None:
-        #return cv2.hconcat([shaded_result_img, result_img])
-        return cv2.hconcat([result_img, last_frame])
+        #return cv2.hconcat([result_img, last_frame])
+        return cv2.hconcat([result_img, raw_img])
     else:
-        #return cv2.hconcat([shaded_result_img, result_img])
         return cv2.hconcat([result_img, raw_img])
 
-def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_Frame_Count, file_path = VideoDir):
+def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):
     #Silence all output of child process
     redirrect_stdout(DebugDir + str (begin//(end-begin))+'_' + str(begin)+'.txt')
     cap, fps, video_length, width, height = load_and_set_video (file_path, begin)
@@ -346,8 +312,6 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 #return 0              
         print_flush ("Worker ending")
         try:
-            #out_file.close()
-            #ffmpeg_proc.stdin.close()
             ffmpeg_proc.wait()
         except:
             pass
@@ -399,5 +363,5 @@ if __name__ == "__main__":
     for w in inference_workers:
         w.join()
     from Combine_Clips import combine_clips
-    combine_clips (SubClipDir, VideoDir, OutputDir, just_combine = 0)
+    combine_clips (SubClipDir, VideoDir, OutputDir, just_combine = 1)
     
