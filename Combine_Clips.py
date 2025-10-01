@@ -25,11 +25,27 @@ def combine_clips (subclip_path, original_path, output_path, just_combine = 0):
         os.remove(file_list_path)
         return 0
     # Step 4: Extract original audio
-    audio_path = "original_audio.aac"
-    subprocess.run(["ffmpeg", "-y", "-i", original_path, "-q:a", "0", "-map", "a", audio_path], check=True)
+    #audio_path = "original_audio.aac"
+    #subprocess.run(["ffmpeg", "-y", "-i", original_path,
+    #                "-q:a", "0", "-map", "a", audio_path], check=True)
+    audio_path = "original_audio.mka"
+    subprocess.run([
+                    "ffmpeg", "-y", "-i", original_path,
+                    "-map", "0:a", "-c:a", "aac", "-b:a", "192k",
+                    audio_path
+                    ], check=True)
+
     # Step 5: Merge video with extracted audio
+    #final_cmd = [
+    #    "ffmpeg", "-i", "temp_video.mp4", "-i", audio_path, "-c:v", "copy", "-c:a", "aac", "-strict", "experimental", output_path
+    #]
+    #subprocess.run(final_cmd, check=True)
+    # Step 5: Merge video with extracted audio (all tracks)
     final_cmd = [
-        "ffmpeg", "-i", "temp_video.mp4", "-i", audio_path, "-c:v", "copy", "-c:a", "aac", "-strict", "experimental", output_path
+        "ffmpeg", "-i", "temp_video.mp4", "-i", audio_path,
+        "-map", "0:v", "-map", "1:a",  # map video + all audio streams
+        "-c:v", "copy", "-c:a", "copy",
+        output_path
     ]
     subprocess.run(final_cmd, check=True)
     # Step 6: Cleanup

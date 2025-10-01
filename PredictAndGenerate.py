@@ -26,19 +26,19 @@ parser.add_argument('--DebugDir',   type=str,
 parser.add_argument('--SubClipDir', type=str,
                                     default="D:/TEMP/JAV Subclip/")
 parser.add_argument('--VideoDir',   type=str,
-                                    default="Videos/SW-158.mp4")
+                                    default="Videos/Drive.2011.1080p.BluRay.DDP5.1.x265.10bit-GalaxyRG265.mkv")
 parser.add_argument('--OutputDir',  type=str,
-                                    default="SBS SW-158.mp4")
+                                    default="SBS Margin Call.mp4")
 parser.add_argument('--encoder',    type=str,
                                     default='vitb')
 parser.add_argument('--encoder_path',type=str,
                                     default='depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth')
 parser.add_argument('--offset_fg',  type=float,
-                                    default=0.04) #0.0125 chưa đủ đô
+                                    default=0.02) #0.0125 chưa đủ đô
 parser.add_argument('--offset_bg',  type=float,
-                                    default=-0.04) #-0.0225 chưa đủ đô
+                                    default=-0.02) #-0.0225 chưa đủ đô
 parser.add_argument('--Num_Workers',type=int,
-                                    default=16)
+                                    default=24)
 parser.add_argument('--num_gpu',    type=int,
                                     default=1)
 parser.add_argument('--Num_GPU_Workers',type=int,
@@ -48,9 +48,12 @@ parser.add_argument('--Max_Frame_Count',type=int,
 parser.add_argument('--start_frame',type=int,
                                     default=0)
 parser.add_argument('--end_frame',  type=int,
-                                    default=9999999999999) #82800 + 450 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
+                                    default=9000) #82800 + 450 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
 parser.add_argument('--repair_mode',type=int,
-                                    default=1)
+                                    default=0) #Repair mode 0: Default option, clear debug/subclip dir, rerun everything and combine
+                                                #Repair mode 1: Just run videos, clear only debug dir, rerun everything, no combine
+                                                #Repair mode 2: Just combine videos with audio
+                                                #Repair mode 3: Combine video only, outputing temp.mp4
 
 args = parser.parse_args()
 
@@ -264,44 +267,36 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
         ffmpeg_proc = None
         last_i = begin
         FrameList = []
-        #profiler = LineProfiler()
-        #profiler.add_function(left_side_sbs)
-        #profiler.add_function(get_cutoff)
-        #profiler.enable()
         for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
             if (raw_img is not None):
-                #left_side_sbs(raw_img[:,:,[2,1,0]])
                 FrameList.append(left_side_sbs(raw_img[:,:,[2,1,0]], inference_queue, result_queue))
-                #profiler.dump_stats("{}_{}".format(left_side_sbs.__name__, str(begin)))
-                #dump_line_profile_to_csv (profiler, DebugDir+"Profile.csv")
             else:
                 FrameList.append(np.zeros((height, 2*width, 3), dtype = np.uint8))
-                gc.collect()
                 print_flush ("Frame read error at i = ",i,", adding black frame to compensate.")
             if (len (FrameList) == max_frame_count) or (i == (min (end-1, video_length-1))):
                 total_step = (min (end, video_length) - begin)
                 step_taken = i - begin
-                time_taken = (time.time() - begin_time)
-                time_total = time_taken / step_taken * total_step
-                time_left = time_taken / step_taken * (total_step - step_taken)
+                #time_taken = (time.time() - begin_time)
+                #time_total = (time.time() - begin_time) / step_taken * total_step
+                #time_left = (time.time() - begin_time) / step_taken * (total_step - step_taken)
                 print_flush ("Writing file ", i, "with length (in frames): ", len(FrameList))
-                print_flush ("",str(int(step_taken / total_step * 10000)/100), "%, Time elapsed (minutes):", time_taken/60.0,", ETA:", time_left/60.0,", Estimated Total Time (minutes):", time_total/60.0)
-                gc.collect()
-                compare_time = time.time()
-                
+                print_flush ("",str(int(step_taken / total_step * 10000)/100), "%, Time elapsed (minutes):", ((time.time() - begin_time))/60.0,", ETA:", ((time.time() - begin_time) / step_taken * (total_step - step_taken))/60.0,", Estimated Total Time (minutes):", ((time.time() - begin_time) / step_taken * total_step)/60.0)
+                                
                 if (ffmpeg_proc is not None): #If the previous ffmpeg subprocess did not finished, wait till it's done before generating new one
                     ffmpeg_proc.wait()
                 ffmpeg_proc = subprocess.Popen(ffmpeg_config + [f'{SubClipDir}{last_i}_{i}.mp4'],
-                                           stdin=subprocess.PIPE)
+                                           stdin=subprocess.PIPE) #ffmpeg write time should only takes about 0.5 seconds, tiny amount
                 for frame in FrameList:
                     ffmpeg_proc.stdin.write(frame.tobytes())
                 ffmpeg_proc.stdin.close()
-                print_flush ("ffmpeg pipe write time: ",time.time()-compare_time)
                 #Random sanity check to protect my sanity
                 if (i%1000 == 0):
-                    vid_length = get_length(SubClipDir+str(last_i)+"_"+str(i)+".mp4")
-                    print ("FrameList length: ",len(FrameList),", Actual length: ", vid_length)
+                    try:
+                        vid_length = get_length(SubClipDir+str(last_i)+"_"+str(i)+".mp4")
+                        print ("FrameList length: ",len(FrameList),", Actual length: ", vid_length)
+                    except ValueError:
+                        pass
                     #assert (len(FrameList) == temp_cap)
                 last_i = i+1
                 FrameList = []
@@ -328,9 +323,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
         print_flush(traceback.format_exc())
         raise e
         return None
-if __name__ == "__main__":
-    #set_start_method("spawn", force=True) #no-op on Windows, uncomment this on Linux
-    
+def we_ballin ():
     step = math.ceil((min(end_frame, video_length) - start_frame)/Num_Workers)
     frame_indices = range(start_frame, min(end_frame, video_length), step)
     
@@ -342,16 +335,11 @@ if __name__ == "__main__":
     for j in range (0, Num_GPU_Workers):
         inference_workers[j].start()
         random_sleep ((0,0.5), "staggered model load")
-    """nibba_woka (1785, 1795, inference_queue_list[0], result_queue_list[0])
-    for inference_queue in inference_queue_list:
-        inference_queue.put(None)        
-    for w in inference_workers:
-        w.join()
-    """
+
     workers = []
     for idx, i in enumerate(frame_indices):
         inference_workers_idx = idx % Num_GPU_Workers
-        worker = Process(target = nibba_woka, args = (i, i + step, inference_queue_list[inference_workers_idx], result_queue_list[inference_workers_idx]))
+        worker = Process(target = nibba_woka, args = (i, min(end_frame, i + step), inference_queue_list[inference_workers_idx], result_queue_list[inference_workers_idx]))
         print ("idx: ", idx,", GPU Worker: ",inference_workers_idx, ", worker: ", worker)
         random_sleep ((0, 1), "Staggered worker start") #There is a reason for this, Don't mess with it
         worker.start()
@@ -362,6 +350,15 @@ if __name__ == "__main__":
         inference_queue.put(None)        
     for w in inference_workers:
         w.join()
-    from Combine_Clips import combine_clips
-    combine_clips (SubClipDir, VideoDir, OutputDir, just_combine = 1)
+    
+if __name__ == "__main__":
+    #set_start_method("spawn", force=True) #no-op on Windows, uncomment this on Linux
+    if (repair_mode in [0, 1]):
+        we_ballin()
+    if (repair_mode in [0, 2]):
+        from Combine_Clips import combine_clips
+        combine_clips (SubClipDir, VideoDir, OutputDir, just_combine = 0)
+    if (repair_mode in [3]):
+        from Combine_Clips import combine_clips
+        combine_clips (SubClipDir, VideoDir, OutputDir, just_combine = 1)
     
