@@ -48,7 +48,7 @@ parser.add_argument('--Max_Frame_Count',type=int,
 parser.add_argument('--start_frame',type=int,
                                     default=0)
 parser.add_argument('--end_frame',  type=int,
-                                    default=9000) #82800 + 450 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
+                                    default=9999999999999) #82800 + 450 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
 parser.add_argument('--repair_mode',type=int,
                                     default=0) #Repair mode 0: Default option, clear debug/subclip dir, rerun everything and combine
                                                 #Repair mode 1: Just run videos, clear only debug dir, rerun everything, no combine
@@ -112,13 +112,14 @@ elif (ffmpeg_device == 'nvidia'):
     ffmpeg_cq = '29'
     ffmpeg_tune = '5'# -(default hq)  hq:1 uhq:5         
     ffmpeg_preset = 'p7' #Lower is faster
-    ffmpeg_multipass = '2' #disabled:0, qres:1, fullres:2
+    ffmpeg_multipass = '0' #disabled:0, qres:1, fullres:2, original 2 but chatgpt told 0 lol
     ffmpeg_config = ffmpeg_config + ['-cq', ffmpeg_cq,
                                      '-rc', 'vbr',
                                      '-preset', ffmpeg_preset,
                                      '-multipass', ffmpeg_multipass,
                                      '-tune', ffmpeg_tune,
-                                     '-rc-lookahead', '4']
+                                     #'-rc-lookahead', '4'
+                                     ]
 
 # Initialize logging
 logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
@@ -233,12 +234,13 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
 
     result_img[result_zero_mask] = (cv2.stackBlur
                                             (raw_img
-                                            ,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
-                                    ))[result_zero_mask]
+                                            #,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
+                                            ,(limit_step*2 + 3, limit_step*2 + 1)
+                                    ))[result_zero_mask] #Help fill black gap
     result_img[result_zero_mask] = (cv2.stackBlur
                                             (result_img
                                             ,(limit_step + (limit_step%2==0), round(limit_step/8)*2 + 1)
-                                    ))[result_zero_mask]
+                                    ))[result_zero_mask] #Help smoothen out the transition
     #Is this line necessary?
     #edge_fill_positive = cv2.dilate(edge_fill_positive.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
 
@@ -281,8 +283,8 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 #time_total = (time.time() - begin_time) / step_taken * total_step
                 #time_left = (time.time() - begin_time) / step_taken * (total_step - step_taken)
                 print_flush ("Writing file ", i, "with length (in frames): ", len(FrameList))
-                print_flush ("",str(int(step_taken / total_step * 10000)/100), "%, Time elapsed (minutes):", ((time.time() - begin_time))/60.0,", ETA:", ((time.time() - begin_time) / step_taken * (total_step - step_taken))/60.0,", Estimated Total Time (minutes):", ((time.time() - begin_time) / step_taken * total_step)/60.0)
-                                
+                print_flush ("Time elapsed (minutes):", ((time.time() - begin_time))/60.0,", ETA:", ((time.time() - begin_time) / step_taken * (total_step - step_taken))/60.0,", Estimated Total Time (minutes):", ((time.time() - begin_time) / step_taken * total_step)/60.0)
+                print_flush (str(int(step_taken / total_step * 10000)/100), " %")            
                 if (ffmpeg_proc is not None): #If the previous ffmpeg subprocess did not finished, wait till it's done before generating new one
                     ffmpeg_proc.wait()
                 ffmpeg_proc = subprocess.Popen(ffmpeg_config + [f'{SubClipDir}{last_i}_{i}.mp4'],
@@ -355,9 +357,11 @@ if __name__ == "__main__":
     #set_start_method("spawn", force=True) #no-op on Windows, uncomment this on Linux
     if (repair_mode in [0, 1]):
         we_ballin()
+        
     if (repair_mode in [0, 2]):
         from Combine_Clips import combine_clips
         combine_clips (SubClipDir, VideoDir, OutputDir, just_combine = 0)
+        
     if (repair_mode in [3]):
         from Combine_Clips import combine_clips
         combine_clips (SubClipDir, VideoDir, OutputDir, just_combine = 1)

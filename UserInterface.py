@@ -5,17 +5,17 @@ args = {
     "DebugDir": "Debug/",
     "SubClipDir": "D:/TEMP/JAV Subclip/",
     "VideoDir": "Videos/Drive.2011.1080p.BluRay.DDP5.1.x265.10bit-GalaxyRG265.mkv",
-    "OutputDir": "SBS Margin Call.mp4",
-    "encoder": "vitb",
-    "encoder_path": "depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth",
-    "offset_fg": 0.02,
-    "offset_bg": -0.02,
-    "Num_Workers": 24,
+    "OutputDir": "SBS Drive.mkv",
+    "encoder": "vits",
+    "encoder_path": "depth_anything_v2/checkpoints/depth_anything_v2_vits.pth",
+    "offset_fg": 0.04,
+    "offset_bg": -0.04,
+    "Num_Workers": 10,
     "num_gpu": 1,
-    "Num_GPU_Workers": 3,
-    "Max_Frame_Count": 30,
+    "Num_GPU_Workers": 2,
+    "Max_Frame_Count": 15,
     "start_frame": 0,
-    "end_frame": 9000,
+    "end_frame": 999999999999999,
     "repair_mode": 0
 }
 
@@ -55,7 +55,12 @@ def run_script(sender, app_data):
     cmd = "python PredictAndGenerate.py " + " ".join(
         [f'--{k} "{v}"' for k, v in args.items()]
     )
-    subprocess.run(cmd, check=True)
+    #subprocess.run(cmd, check=True)
+    proc = subprocess.Popen(cmd)
+    while proc.poll() is None:
+        time.sleep(0.1)
+        increment_progress()
+    set_value("progress", 1.0)
 # --- UI START ---
 create_context()
 create_viewport(title="PredictAndGenerate UI", width=1600, height=800)
@@ -70,7 +75,13 @@ with file_dialog(directory_selector=True, show=False, callback=select_dir_callba
 
 # File dialog
 with file_dialog(directory_selector=False, show=False, callback=select_file_callback, tag="file_dialog", width=600, height=400):
+    #add_file_extension("", color=(255, 255, 255, 255))
+    add_file_extension(".mp4,.mkv", color=(255, 255, 255, 255))
+    add_file_extension(".mov", color=(255, 255, 255, 255))
+    add_file_extension(".avi", color=(255, 255, 255, 255))
     add_file_extension(".*", color=(255, 255, 255, 255))
+    add_file_extension(".pth", color=(255, 255, 255, 255))
+    #pass
 
 button_list = []
 
@@ -88,7 +99,7 @@ with window(label="PredictAndGenerate", tag="main_window", width=1580, height=78
                 add_text("Directories / Files")
                 add_spacer(width=0, height=10)  # 10 pixels vertical space
                 with group(horizontal=True):
-                    add_text("Input (Original) Video Directory")
+                    add_text("Input (Original) Video Path")
                     button_list.append(add_button(label="Select Video", callback=lambda: open_file_dialog("VideoDir")))
                 add_input_text(tag="VideoDir", default_value=args["VideoDir"], callback=update_value, user_data="VideoDir", width=-1)
 
@@ -110,17 +121,10 @@ with window(label="PredictAndGenerate", tag="main_window", width=1580, height=78
                 add_input_text(tag="encoder_path", default_value=args["encoder_path"], callback=update_value, user_data="encoder_path", width=-1)
                 button_list.append(add_button(label="Select Encoder Path", callback=lambda: open_file_dialog("encoder_path")))
 
-                add_spacer(width=0, height=10)  # 10 pixels vertical space
-                with group(horizontal=True):
-                    add_text("Debug Directory")
-                    button_list.append(add_button(label="Select DebugDir", callback=lambda: open_dir_dialog("DebugDir")))
-                add_input_text(tag="DebugDir", default_value=args["DebugDir"], callback=update_value, user_data="DebugDir", width=-1)
-
             # RIGHT COLUMN
             with group(horizontal=False):
                 add_text("Video Parameter")
-                add_input_text(label="start_frame", default_value=args["start_frame"], callback=update_value, user_data="start_frame")
-                add_input_text(label="end_frame", default_value=args["end_frame"], callback=update_value, user_data="end_frame")
+                add_spacer(width=0, height=10)  # 10 pixels vertical space
                 add_input_float(label="offset_fg", default_value=args["offset_fg"], callback=update_value, user_data="offset_fg")
                 add_input_float(label="offset_bg", default_value=args["offset_bg"], callback=update_value, user_data="offset_bg")
 
@@ -132,11 +136,21 @@ with window(label="PredictAndGenerate", tag="main_window", width=1580, height=78
                 add_combo(label="repair_mode", items=["0 - Full", "1 - Rerun no combine", "2 - Combine - Export video", "3 - [Debug] Combine video only, temp.mp4"],
                           default_value="0 - Full",
                           callback=lambda s,a,u: update_value(s,int(a[0]),"repair_mode"), user_data="repair_mode")
+                add_text("Debug Parameter, don't touch")
+                add_input_text(label="start_frame", default_value=args["start_frame"], callback=update_value, user_data="start_frame")
+                add_input_text(label="end_frame", default_value=args["end_frame"], callback=update_value, user_data="end_frame")
+
+                add_spacer(width=0, height=10)  # 10 pixels vertical space
+                with group(horizontal=True):
+                    add_text("Debug Directory")
+                    button_list.append(add_button(label="Select DebugDir", callback=lambda: open_dir_dialog("DebugDir")))
+                add_input_text(tag="DebugDir", default_value=args["DebugDir"], callback=update_value, user_data="DebugDir", width=-1)
 
     add_separator()
     add_text("Command Preview:")
     add_input_text(multiline=True, readonly=True, tag="preview_text", width=950, height=80)
     add_button(label="Run", callback=run_script, width=200, height=50)
+    add_progress_bar(tag="progress", default_value=0.0, width=300)
 
 # Apply BIG font to everything
 bind_font(big_font)
