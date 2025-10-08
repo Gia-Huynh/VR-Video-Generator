@@ -1,5 +1,5 @@
 #Profiling
-from line_profiler import LineProfiler
+#from line_profiler import LineProfiler
 #Basic system import
 import os, sys, time, random, traceback, gc, math
 import logging #Don't remove this
@@ -7,7 +7,6 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 import torch
-#DEVICE = 'cuda' if torch.cuda.is_available() else 'mps' if torch.backends.mps.is_available() else 'cpu'
 from torch.amp import autocast #For FP16
 from depth_anything_v2.dpt import DepthAnythingV2
 #Video Export Libraries
@@ -201,15 +200,13 @@ def left_side_sbs(raw_img, inference_queue, result_queue):
         bin_mask = (((i - 0.075 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
 
         rows, cols = np.nonzero(bin_mask)
-        #masked_img = np.zeros_like(raw_img)
-        #masked_img[rows, cols, :] = raw_img[rows, cols, :]
-        #offset_x = int((i+0.5*curr_step) / (0.00001+limit_step - curr_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
         offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
-        #print ("offset_x: ", offset_x)
+
         if offset_x != 0:
             bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)
         masked_mask = bin_mask
-        #This one is for edge filling for "close-by" objects
+        
+        #This one is for edge expanding for "close-by" objects
         if (offset_x > 0): #From >0
            edge_fill_positive |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[-2, 1, 1]], dtype=np.int16))>0
         if (offset_x < 0):
@@ -279,9 +276,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
             if (len (FrameList) == max_frame_count) or (i == (min (end-1, video_length-1))):
                 total_step = (min (end, video_length) - begin)
                 step_taken = i - begin
-                #time_taken = (time.time() - begin_time)
-                #time_total = (time.time() - begin_time) / step_taken * total_step
-                #time_left = (time.time() - begin_time) / step_taken * (total_step - step_taken)
+                
                 print_flush ("Writing file ", i, "with length (in frames): ", len(FrameList))
                 print_flush ("Time elapsed (minutes):", ((time.time() - begin_time))/60.0,", ETA:", ((time.time() - begin_time) / step_taken * (total_step - step_taken))/60.0,", Estimated Total Time (minutes):", ((time.time() - begin_time) / step_taken * total_step)/60.0)
                 print_flush (str(int(step_taken / total_step * 10000)/100), " %")            
@@ -296,7 +291,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 if (i%1000 == 0):
                     try:
                         vid_length = get_length(SubClipDir+str(last_i)+"_"+str(i)+".mp4")
-                        print ("FrameList length: ",len(FrameList),", Actual length: ", vid_length)
+                        print_flush ("FrameList length: ",len(FrameList),", Actual length: ", vid_length)
                     except ValueError:
                         pass
                     #assert (len(FrameList) == temp_cap)
@@ -304,8 +299,6 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 FrameList = []
                 gc.collect()
                 #print_flush ("Worker ending")
-                #profiler.disable()
-                #profiler.print_stats()
                 #return 0              
         print_flush ("Worker ending")
         try:

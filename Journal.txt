@@ -1,0 +1,5 @@
+Maria Nagai 0.04 -0.2 (Or 0.02?).mkv is the holy grail, jesus.
+So now I’m testing the same config (0.04, -0.02) on other videos.
+
+Found a way to optimize speed, let the gpu handle np.roll (torch.roll)
+torch.roll (img_gpu, shifts=i, dims=1).cpu().numpy()
