@@ -105,11 +105,22 @@ def inference_worker (in_queue, out_queue, DEVICE):
         
 class LeftSBSProcessor:
     def __init__(self):
+        self.depth_dampening_count = 4 #fourth one is only 0.04125
+        self.depth_dampening_ratio = 0.5
+        self.depth_dampening_initial_value = 0.33
+        self.depth_list = []
+        
+        t = self.depth_dampening_initial_value
+        t_accumulate_sum = 0
+        for i in range (self.depth_dampening_count):
+            t_accumulate_sum = t_accumulate_sum + t
+            t = t*self.depth_dampening_ratio
+        self.depth_dampening_original_ratio = 1 - t_accumulate_sum
+            
         self.last_depth_flag = True
         self.last_depth = None
         self.last_frame = None
         self.print_once = False
-        
     def get_cutoff (self, depth):
         limit_step = math.ceil(depth.max())
         offset_range = [offset_bg * depth.shape[0], offset_fg * depth.shape[0] * limit_step/14.0]
@@ -124,11 +135,46 @@ class LeftSBSProcessor:
         cutoff_list [0] = 0
         step_list = [cutoff_list[i+1]-cutoff_list[i] for i in range(len(cutoff_list)-1)]
         return cutoff_list, offset_range, step_list, limit_step
+    def get_depth (self, raw_img, inference_queue, result_queue):
+        if (self.last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) and (self.last_depth_flag == True):
+            depth = self.last_depth
+            return depth
+
+        #add raw_img to gpu queue and get result
+        self.last_frame = raw_img.copy()
+        inference_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
+        depth = result_queue.get()
+
+        #Intialization
+        while (len(self.depth_list)<self.depth_dampening_count):
+            self.depth_list.append(depth.copy())
+
+        t = self.depth_dampening_initial_value
+        depth = depth*self.depth_dampening_original_ratio
+        #print ("depth OG:", self.depth_dampening_original_ratio)
+        for i in range (len(self.depth_list)-1, -1, -1):
+            #print (f"depth = depth + self.depth_list[{i}]*",t)
+            depth =  depth + self.depth_list[i]*t
+            t = t*self.depth_dampening_ratio
+        self.depth_list.pop(0)
+        self.depth_list.append (depth.copy())
+        return depth
+    def gpu_roll (self, img, shift, axis):  #Same input signature as np.roll to ensure replacability
+        #print ("shift roll: ",shift)
+        return np.roll(img, shift=shift, axis=axis).astype (bool)
+        #return torch.roll (torch.from_numpy(img).to(torch.device('cuda')), shifts=shift, dims=axis).cpu().numpy()
     
+    def gpu_roll_with_offset (self, img, shift, axis, offset):
+        result = []
+        img_gpu = torch.from_numpy(img).to(torch.device('cuda')
+        for i in offset:
+            result.append (torch.roll (img_gpu, shifts=shift, dims=axis).cpu().numpy())
+        return result
+    #np.roll(bin_mask, shift=offset_x, axis=1)
     def left_side_sbs(self, raw_img, inference_queue, result_queue):
         #Reuse old depth if frame is not much different shenanigan.
         #Used to be (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (5, 5)), cv2.stackBlur(last_frame, (3, 3)))) < 6000000)
-        if (self.last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) and (last_depth_flag == True):
+        """if (self.last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) and (self.last_depth_flag == True):
             depth = self.last_depth
         else:     
             self.last_frame = raw_img.copy()
@@ -141,7 +187,8 @@ class LeftSBSProcessor:
             else:
                 print_flush ("WHAT THE FUCKKKKKKK")
                 self.last_depth_flag = False
-                self.last_depth = depth.copy()
+                self.last_depth = depth.copy()"""
+        depth = self.get_depth(raw_img, inference_queue, result_queue)
 
         #Initialization
         #Normal image fill
@@ -170,7 +217,8 @@ class LeftSBSProcessor:
             offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
 
             if offset_x != 0:
-                bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)
+                #bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)
+                bin_mask = self.gpu_roll(bin_mask, shift=offset_x, axis=1).astype (bool)
             masked_mask = bin_mask
             
             #This one is for edge expanding for "close-by" objects
@@ -181,7 +229,8 @@ class LeftSBSProcessor:
             
             #As fast as you can get here
             rows, cols = np.nonzero(bin_mask)
-            result_img[rows, cols, :] = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
+            #result_img[rows, cols, :] = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
+            result_img[rows, cols, :] = self.gpu_roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
 
             result_blank_mask |= masked_mask
 
@@ -209,11 +258,12 @@ class LeftSBSProcessor:
 
         result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
         self.print_once = True
-        if self.last_frame is not None:
+        return cv2.hconcat([result_img, raw_img])
+        """if self.last_frame is not None:
             return cv2.hconcat([result_img, self.last_frame])
             #return cv2.hconcat([result_img, raw_img])
         else:
-            return cv2.hconcat([result_img, raw_img])
+            return cv2.hconcat([result_img, raw_img])"""
 
 def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):
     #Silence all output of child process
@@ -221,6 +271,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
     cap, fps, video_length, width, height = load_and_set_video (file_path, begin)
     total_step = (min (end, video_length) - begin)
     sbsObj = LeftSBSProcessor()
+    
     print_flush ("Worker begin from ",begin," to ",end)    
     print_flush ("video length: ", get_length (file_path), "frame count: ",video_length, ", begin and end: ",begin, end)
     #random_sleep ((0, int(30 * (begin/video_length))), "Sleeping some more to diverge them process")
