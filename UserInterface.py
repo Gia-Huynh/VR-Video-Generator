@@ -4,12 +4,12 @@ import subprocess
 args = {
     "DebugDir": "Debug/",
     "SubClipDir": "D:/TEMP/JAV Subclip/",
-    "VideoDir": "Videos/Drive.2011.1080p.BluRay.DDP5.1.x265.10bit-GalaxyRG265.mkv",
-    "OutputDir": "SBS Drive.mkv",
+    "VideoDir": "Videos/Input/WorstOrBest [Trimmed].mp4",
+    "OutputDir": "KILL ME.mkv",
     "encoder": "vits",
     "encoder_path": "depth_anything_v2/checkpoints/depth_anything_v2_vits.pth",
-    "offset_fg": 0.04,
-    "offset_bg": -0.04,
+    "offset_fg": 0.025,
+    "offset_bg": -0.05,
     "Num_Workers": 10,
     "num_gpu": 1,
     "Num_GPU_Workers": 2,
@@ -57,10 +57,10 @@ def run_script(sender, app_data):
     )
     #subprocess.run(cmd, check=True)
     proc = subprocess.Popen(cmd)
-    while proc.poll() is None:
-        time.sleep(0.1)
-        increment_progress()
-    set_value("progress", 1.0)
+    #while proc.poll() is None:
+    #    time.sleep(0.1)
+    #    increment_progress()
+    #set_value("progress", 1.0)
 # --- UI START ---
 create_context()
 create_viewport(title="PredictAndGenerate UI", width=1600, height=800)

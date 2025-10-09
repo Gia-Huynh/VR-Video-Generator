@@ -2,7 +2,7 @@
 #from line_profiler import LineProfiler
 #Basic system import
 import os, sys, time, random, traceback, gc, math
-import logging #Don't remove this
+#import logging #Don't remove this
 from tqdm import tqdm
 import cv2
 import numpy as np
@@ -15,7 +15,7 @@ import multiprocessing as mp
 from multiprocessing import shared_memory
 from multiprocessing import Process, Queue, set_start_method
 #Support Functions
-from SupportFunction import dump_line_profile_to_csv, get_length, get_cutoff, load_model, load_and_set_video, random_sleep, redirrect_stdout, print_flush, remove_all_file
+from SupportFunction import get_length, get_cutoff, get_ffmpeg_config, load_model, load_and_set_video, redirrect_stdout, print_flush, dump_line_profile_to_csv, remove_all_file, random_sleep
 import SupportFunction as SpF
 import argparse
 
@@ -76,58 +76,15 @@ if (offset_bg >= 0) and (offset_bg * offset_fg > 0):
     offset_bg = offset_bg * (-1)
 
 #if smaller than video length, will be clipped off
-
-if __name__ == "__main__":
-    remove_all_file (DebugDir)
-    if (repair_mode == 0):
-        remove_all_file (SubClipDir)
+video_length = 0
     
 #Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
 #Options in [input options] are applied to the input. Options in [output options] are applied to the output.
-_, fps, video_length, width, height = load_and_set_video (VideoDir, 0)
 ffmpeg_device = 'nvidia'
-ffmpeg_config = [
-    'ffmpeg',
-    '-y',
-    '-f', 'rawvideo',
-    '-vcodec', 'rawvideo',
-    '-pix_fmt', 'rgb24',
-    '-s',
-    f'{2*width}x{height}', '-r', str(fps),
-    '-i', '-',  # stdin
-    '-an',
-    '-pix_fmt', 'yuv420p'
-    ]
-
-if (ffmpeg_device == 'cpu'):
-    ffmpeg_encoder = 'libx264' #'libx264' for cpu
-    ffmpeg_config += ['-c:v', ffmpeg_encoder]
-    ffmpeg_crf = '20'
-    ffmpeg_preset = 'veryfast'    
-    ffmpeg_config += ['-crf', ffmpeg_crf, '-preset', ffmpeg_preset]  # use crf with libx264
-elif (ffmpeg_device == 'nvidia'):
-    ffmpeg_encoder = 'hevc_nvenc' #h264_nvenc for h264, hevc_nvenc for h265.
-    ffmpeg_config += ['-c:v', ffmpeg_encoder]
-    ffmpeg_cq = '29'
-    ffmpeg_tune = '5'# -(default hq)  hq:1 uhq:5         
-    ffmpeg_preset = 'p7' #Lower is faster
-    ffmpeg_multipass = '0' #disabled:0, qres:1, fullres:2, original 2 but chatgpt told 0 lol
-    ffmpeg_config = ffmpeg_config + ['-cq', ffmpeg_cq,
-                                     '-rc', 'vbr',
-                                     '-preset', ffmpeg_preset,
-                                     '-multipass', ffmpeg_multipass,
-                                     '-tune', ffmpeg_tune,
-                                     #'-rc-lookahead', '4'
-                                     ]
-
+video_length, ffmpeg_config = SpF.get_ffmpeg_config(VideoDir, ffmpeg_device)
 # Initialize logging
-logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
+#logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
 
-#Global Variable
-last_depth_flag = True
-last_depth = None
-last_frame = None
-print_once = False
 def inference_worker (in_queue, out_queue, DEVICE):
     redirrect_stdout(DebugDir + f"inference_worker_{os.getpid()}.txt")
     print_flush (encoder, encoder_path, DEVICE)
@@ -145,141 +102,148 @@ def inference_worker (in_queue, out_queue, DEVICE):
         with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
             result = model.infer_image(img)
         out_queue.put(result)
-def left_side_sbs(raw_img, inference_queue, result_queue):
-    #Reuse old depth if frame is not much different shenanigan.
-    global last_depth_flag
-    global last_frame
-    global last_depth
-    global print_once
-    #Used to be  (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (5, 5)), cv2.stackBlur(last_frame, (3, 3)))) < 6000000)
-    if (last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(last_frame, (3, 3)))) < 2000000) and (last_depth_flag == True):
-        depth = last_depth
-    else:     
-        last_frame = raw_img.copy()
-        inference_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
-        depth = result_queue.get()
-        if (last_depth_flag == False):
-            depth = depth*0.6 + last_depth*0.4
-            last_depth = depth.copy()
-            #last_depth_flag = True
-        else:
-            last_depth_flag = False
-            last_depth = depth.copy()
-
-    #Normal image fill
-    result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
-    result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
-    shaded_result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
-    #Edge blurring DOES NOT CONSUME CPU TIME MUCH.
-    edge_fill_positive = np.zeros(raw_img.shape[:2], dtype=bool)
-    edge_fill_negative = np.zeros(raw_img.shape[:2], dtype=bool)
-    limit_step = math.ceil(depth.max())
-    offset_range = [offset_bg * raw_img.shape[0], offset_fg * raw_img.shape[0] * limit_step/14.0]
-    max_depth = limit_step
-    kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
-    kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
+        
+class LeftSBSProcessor:
+    def __init__(self):
+        self.last_depth_flag = True
+        self.last_depth = None
+        self.last_frame = None
+        self.print_once = False
+        
+    def get_cutoff (self, depth):
+        limit_step = math.ceil(depth.max())
+        offset_range = [offset_bg * depth.shape[0], offset_fg * depth.shape[0] * limit_step/14.0]
+        cutoff_list = []
+        for i in range (int(offset_range[0]), -1, 2): #Cai nay giup save 20% time, 550 phut xuong 450 phut
+            cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
+        cutoff_list.append ((0 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
+        for i in range (1, int(offset_range[1]), 2):
+            cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
+        cutoff_list.append (limit_step)
+        cutoff_list = sorted (cutoff_list)
+        cutoff_list [0] = 0
+        step_list = [cutoff_list[i+1]-cutoff_list[i] for i in range(len(cutoff_list)-1)]
+        return cutoff_list, offset_range, step_list, limit_step
     
-    cutoff_list = []
-    for i in range (int(offset_range[0]), -1, 2): #Cai nay giup save 20% time, 550 phut xuong 450 phut
-        cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
-    #0
-    cutoff_list.append ((0 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
-    for i in range (1, int(offset_range[1]), 2):
-        cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
-    cutoff_list.append (limit_step)
-    cutoff_list = sorted (cutoff_list)
-    cutoff_list [0] = 0
-    step_list = [cutoff_list[i+1]-cutoff_list[i] for i in range(len(cutoff_list)-1)]
+    def left_side_sbs(self, raw_img, inference_queue, result_queue):
+        #Reuse old depth if frame is not much different shenanigan.
+        #Used to be (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (5, 5)), cv2.stackBlur(last_frame, (3, 3)))) < 6000000)
+        if (self.last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) and (last_depth_flag == True):
+            depth = self.last_depth
+        else:     
+            self.last_frame = raw_img.copy()
+            inference_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
+            depth = result_queue.get()
+            if (self.last_depth_flag == False):
+                depth = depth*0.6 + self.last_depth*0.4
+                self.last_depth = depth.copy()
+                #last_depth_flag = True
+            else:
+                print_flush ("WHAT THE FUCKKKKKKK")
+                self.last_depth_flag = False
+                self.last_depth = depth.copy()
 
-    if print_once == False:
+        #Initialization
+        #Normal image fill
+        result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
+        result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
+        shaded_result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
+        #Edge blurring DOES NOT CONSUME CPU TIME MUCH.
+        edge_fill_positive = np.zeros(raw_img.shape[:2], dtype=bool)
+        edge_fill_negative = np.zeros(raw_img.shape[:2], dtype=bool)
+
+        #Get cut-off and related matrix.
+        cutoff_list, offset_range, step_list, limit_step = self.get_cutoff(depth)
+        
+        #Kernel init
+        kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
+        
+        if self.print_once == False:
+            for i, curr_step in zip(cutoff_list, step_list):
+                t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
+                print_flush (t,' ',round(t),' ',int(t))
+
         for i, curr_step in zip(cutoff_list, step_list):
-            t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
-            print_flush (t,' ',round(t),' ',int(t))
+            bin_mask = (((i - 0.05 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
 
-    for i, curr_step in zip(cutoff_list, step_list):
-        bin_mask = (((i - 0.075 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
+            rows, cols = np.nonzero(bin_mask)
+            offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
 
-        rows, cols = np.nonzero(bin_mask)
-        offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
+            if offset_x != 0:
+                bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)
+            masked_mask = bin_mask
+            
+            #This one is for edge expanding for "close-by" objects
+            if (offset_x > 0): #From >0
+               edge_fill_positive |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[-2, 1, 1]], dtype=np.int16))>0
+            if (offset_x < 0):
+               edge_fill_negative |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, 1, -2]], dtype=np.int16))>0
+            
+            #As fast as you can get here
+            rows, cols = np.nonzero(bin_mask)
+            result_img[rows, cols, :] = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
 
-        if offset_x != 0:
-            bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)
-        masked_mask = bin_mask
-        
-        #This one is for edge expanding for "close-by" objects
-        if (offset_x > 0): #From >0
-           edge_fill_positive |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[-2, 1, 1]], dtype=np.int16))>0
-        if (offset_x < 0):
-           edge_fill_negative |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, 1, -2]], dtype=np.int16))>0
-        
-        #As fast as you can get here
-        rows, cols = np.nonzero(bin_mask)
-        result_img[rows, cols, :] = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
+            result_blank_mask |= masked_mask
 
-        #Color injecting:
-        """shaded = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :].astype(np.float32) * 0.65 + 0.35 * np.array(color_list[color_t%len(color_list)])
-        color_t = color_t+1
-        shaded = np.clip(shaded, 0, 255).astype(np.uint8)
-        shaded_result_img[rows, cols, :] = shaded"""
+        result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
+        kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
+        result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
+        #Fill result_img with blurred value from zero_mask
+        result_zero_mask = result_zero_mask.astype(bool)
 
-        result_blank_mask |= masked_mask
-
-    result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
-    result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
-    #Fill result_img with blurred value from zero_mask
-    result_zero_mask = result_zero_mask.astype(bool)
-
-    result_img[result_zero_mask] = (cv2.stackBlur
-                                            (raw_img
-                                            #,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
-                                            ,(limit_step*2 + 3, limit_step*2 + 1)
-                                    ))[result_zero_mask] #Help fill black gap
-    result_img[result_zero_mask] = (cv2.stackBlur
-                                            (result_img
-                                            ,(limit_step + (limit_step%2==0), round(limit_step/8)*2 + 1)
-                                    ))[result_zero_mask] #Help smoothen out the transition
-    #Is this line necessary?
-    #edge_fill_positive = cv2.dilate(edge_fill_positive.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
+        result_img[result_zero_mask] = (cv2.stackBlur
+                                                (raw_img
+                                                #,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
+                                                ,(limit_step*2 + 3, limit_step*2 + 1)
+                                        ))[result_zero_mask] #Help fill black gap
+        result_img[result_zero_mask] = (cv2.stackBlur
+                                                (result_img
+                                                ,(limit_step + (limit_step%2==0), round(limit_step/8)*2 + 1)
+                                        ))[result_zero_mask] #Help smoothen out the transition
+        #Is this line necessary?
+        #edge_fill_positive = cv2.dilate(edge_fill_positive.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
 
 
-    result_img[edge_fill_positive] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_positive]
-    result_img[edge_fill_negative] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_negative]
+        result_img[edge_fill_positive] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_positive]
+        result_img[edge_fill_negative] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_negative]
 
-    result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
-    print_once = True
-    if last_frame is not None:
-        #return cv2.hconcat([result_img, last_frame])
-        return cv2.hconcat([result_img, raw_img])
-    else:
-        return cv2.hconcat([result_img, raw_img])
+        result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
+        self.print_once = True
+        if self.last_frame is not None:
+            return cv2.hconcat([result_img, self.last_frame])
+            #return cv2.hconcat([result_img, raw_img])
+        else:
+            return cv2.hconcat([result_img, raw_img])
 
 def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):
     #Silence all output of child process
     redirrect_stdout(DebugDir + str (begin//(end-begin))+'_' + str(begin)+'.txt')
     cap, fps, video_length, width, height = load_and_set_video (file_path, begin)
+    total_step = (min (end, video_length) - begin)
+    sbsObj = LeftSBSProcessor()
     print_flush ("Worker begin from ",begin," to ",end)    
     print_flush ("video length: ", get_length (file_path), "frame count: ",video_length, ", begin and end: ",begin, end)
     #random_sleep ((0, int(30 * (begin/video_length))), "Sleeping some more to diverge them process")
     begin_time = time.time()
+
     global ffmpeg_config
+    ffmpeg_proc = None
+    last_i = begin
+    FrameList = []
     try:
-        ffmpeg_proc = None
-        last_i = begin
-        FrameList = []
         for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
             if (raw_img is not None):
-                FrameList.append(left_side_sbs(raw_img[:,:,[2,1,0]], inference_queue, result_queue))
+                FrameList.append(sbsObj.left_side_sbs(raw_img[:,:,[2,1,0]], inference_queue, result_queue))
             else:
                 FrameList.append(np.zeros((height, 2*width, 3), dtype = np.uint8))
                 print_flush ("Frame read error at i = ",i,", adding black frame to compensate.")
             if (len (FrameList) == max_frame_count) or (i == (min (end-1, video_length-1))):
-                total_step = (min (end, video_length) - begin)
                 step_taken = i - begin
-                
                 print_flush ("Writing file ", i, "with length (in frames): ", len(FrameList))
                 print_flush ("Time elapsed (minutes):", ((time.time() - begin_time))/60.0,", ETA:", ((time.time() - begin_time) / step_taken * (total_step - step_taken))/60.0,", Estimated Total Time (minutes):", ((time.time() - begin_time) / step_taken * total_step)/60.0)
                 print_flush (str(int(step_taken / total_step * 10000)/100), " %")            
+
                 if (ffmpeg_proc is not None): #If the previous ffmpeg subprocess did not finished, wait till it's done before generating new one
                     ffmpeg_proc.wait()
                 ffmpeg_proc = subprocess.Popen(ffmpeg_config + [f'{SubClipDir}{last_i}_{i}.mp4'],
@@ -287,19 +251,10 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 for frame in FrameList:
                     ffmpeg_proc.stdin.write(frame.tobytes())
                 ffmpeg_proc.stdin.close()
-                #Random sanity check to protect my sanity
-                if (i%1000 == 0):
-                    try:
-                        vid_length = get_length(SubClipDir+str(last_i)+"_"+str(i)+".mp4")
-                        print_flush ("FrameList length: ",len(FrameList),", Actual length: ", vid_length)
-                    except ValueError:
-                        pass
-                    #assert (len(FrameList) == temp_cap)
+                
                 last_i = i+1
                 FrameList = []
                 gc.collect()
-                #print_flush ("Worker ending")
-                #return 0              
         print_flush ("Worker ending")
         try:
             ffmpeg_proc.wait()
@@ -346,6 +301,11 @@ def we_ballin ():
     for w in inference_workers:
         w.join()
     
+if __name__ == "__main__":
+    remove_all_file (DebugDir)
+    if (repair_mode == 0):
+        remove_all_file (SubClipDir)
+        
 if __name__ == "__main__":
     #set_start_method("spawn", force=True) #no-op on Windows, uncomment this on Linux
     if (repair_mode in [0, 1]):

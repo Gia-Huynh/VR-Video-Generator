@@ -170,3 +170,40 @@ def load_and_set_video (file_path, begin): #Function used only in nibba_woka
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.set(cv2.CAP_PROP_POS_FRAMES, begin) # set frame position
     return cap, fps, video_length, width, height
+def get_ffmpeg_config (VideoDir, ffmpeg_device = 'cpu'):
+    global video_length
+    _, fps, video_length, width, height = load_and_set_video (VideoDir, 0)
+    ffmpeg_config = [
+        'ffmpeg',
+        '-y',
+        '-f', 'rawvideo',
+        '-vcodec', 'rawvideo',
+        '-pix_fmt', 'rgb24',
+        '-s',
+        f'{2*width}x{height}', '-r', str(fps),
+        '-i', '-',  # stdin
+        '-an',
+        '-pix_fmt', 'yuv420p'
+        ]
+
+    if (ffmpeg_device == 'cpu'):
+        ffmpeg_encoder = 'libx264' #'libx264' for cpu
+        ffmpeg_config += ['-c:v', ffmpeg_encoder]
+        ffmpeg_crf = '20'
+        ffmpeg_preset = 'veryfast'    
+        ffmpeg_config += ['-crf', ffmpeg_crf, '-preset', ffmpeg_preset]  # use crf with libx264
+    elif (ffmpeg_device == 'nvidia'):
+        ffmpeg_encoder = 'hevc_nvenc' #h264_nvenc for h264, hevc_nvenc for h265.
+        ffmpeg_config += ['-c:v', ffmpeg_encoder]
+        ffmpeg_cq = '29'
+        ffmpeg_tune = '5'# -(default hq)  hq:1 uhq:5         
+        ffmpeg_preset = 'p7' #Lower is faster
+        ffmpeg_multipass = '0' #disabled:0, qres:1, fullres:2, original 2 but chatgpt told 0 lol
+        ffmpeg_config = ffmpeg_config + ['-cq', ffmpeg_cq,
+                                         '-rc', 'vbr',
+                                         '-preset', ffmpeg_preset,
+                                         '-multipass', ffmpeg_multipass,
+                                         '-tune', ffmpeg_tune,
+                                         #'-rc-lookahead', '4'
+                                         ]
+    return video_length, ffmpeg_config
