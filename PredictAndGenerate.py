@@ -1,5 +1,5 @@
 #Profiling
-#from line_profiler import LineProfiler
+from line_profiler import LineProfiler
 #Basic system import
 import os, sys, time, random, traceback, gc, math
 #import logging #Don't remove this
@@ -134,10 +134,15 @@ class LeftSBSProcessor:
         cutoff_list = sorted (cutoff_list)
         cutoff_list [0] = 0
         step_list = [cutoff_list[i+1]-cutoff_list[i] for i in range(len(cutoff_list)-1)]
-        return cutoff_list, offset_range, step_list, limit_step
+
+        offset_x_list = []
+        for i, curr_step in zip(cutoff_list, step_list):
+            offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
+            offset_x_list.append (offset_x)
+        return cutoff_list, offset_range, step_list, limit_step, offset_x_list
     def get_depth (self, raw_img, inference_queue, result_queue):
         if (self.last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) and (self.last_depth_flag == True):
-            depth = self.last_depth
+            depth = self.depth_list[-1]
             return depth
 
         #add raw_img to gpu queue and get result
@@ -151,9 +156,7 @@ class LeftSBSProcessor:
 
         t = self.depth_dampening_initial_value
         depth = depth*self.depth_dampening_original_ratio
-        #print ("depth OG:", self.depth_dampening_original_ratio)
         for i in range (len(self.depth_list)-1, -1, -1):
-            #print (f"depth = depth + self.depth_list[{i}]*",t)
             depth =  depth + self.depth_list[i]*t
             t = t*self.depth_dampening_ratio
         self.depth_list.pop(0)
@@ -164,30 +167,16 @@ class LeftSBSProcessor:
         return np.roll(img, shift=shift, axis=axis).astype (bool)
         #return torch.roll (torch.from_numpy(img).to(torch.device('cuda')), shifts=shift, dims=axis).cpu().numpy()
     
-    def gpu_roll_with_offset (self, img, shift, axis, offset):
+    def gpu_roll_with_offset (self, img, offset_list, axis):
         result = []
-        img_gpu = torch.from_numpy(img).to(torch.device('cuda')
-        for i in offset:
-            result.append (torch.roll (img_gpu, shifts=shift, dims=axis).cpu().numpy())
-        return result
+        img_gpu = torch.from_numpy(img).to(torch.device('cuda'), non_blocking=True)
+        for i in offset_list:
+            result.append (torch.roll (img_gpu, shifts=i, dims=axis)[None, :]) #.unsqueeze(0)
+        result = torch.cat(result, dim=0)  # stack on GPU
+        return result.cpu().numpy()
     #np.roll(bin_mask, shift=offset_x, axis=1)
     def left_side_sbs(self, raw_img, inference_queue, result_queue):
         #Reuse old depth if frame is not much different shenanigan.
-        #Used to be (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (5, 5)), cv2.stackBlur(last_frame, (3, 3)))) < 6000000)
-        """if (self.last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) and (self.last_depth_flag == True):
-            depth = self.last_depth
-        else:     
-            self.last_frame = raw_img.copy()
-            inference_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
-            depth = result_queue.get()
-            if (self.last_depth_flag == False):
-                depth = depth*0.6 + self.last_depth*0.4
-                self.last_depth = depth.copy()
-                #last_depth_flag = True
-            else:
-                print_flush ("WHAT THE FUCKKKKKKK")
-                self.last_depth_flag = False
-                self.last_depth = depth.copy()"""
         depth = self.get_depth(raw_img, inference_queue, result_queue)
 
         #Initialization
@@ -198,27 +187,28 @@ class LeftSBSProcessor:
         #Edge blurring DOES NOT CONSUME CPU TIME MUCH.
         edge_fill_positive = np.zeros(raw_img.shape[:2], dtype=bool)
         edge_fill_negative = np.zeros(raw_img.shape[:2], dtype=bool)
-
-        #Get cut-off and related matrix.
-        cutoff_list, offset_range, step_list, limit_step = self.get_cutoff(depth)
-        
         #Kernel init
         kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
         
-        if self.print_once == False:
-            for i, curr_step in zip(cutoff_list, step_list):
-                t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
-                print_flush (t,' ',round(t),' ',int(t))
 
-        for i, curr_step in zip(cutoff_list, step_list):
+        #Get cut-off and related matrix.
+        cutoff_list, offset_range, step_list, limit_step, offset_x_list = self.get_cutoff(depth)
+        
+        #if self.print_once == False: #Debug printing
+        #    for i, curr_step in zip(cutoff_list, step_list):
+        #        t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
+        #        print_flush (t,' ',round(t),' ',int(t))
+                
+        offset_img = self.gpu_roll_with_offset(raw_img, offset_list = offset_x_list, axis=1)
+        for idx, i, curr_step in zip(range(len(cutoff_list)), cutoff_list, step_list):
             bin_mask = (((i - 0.05 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
 
             rows, cols = np.nonzero(bin_mask)
-            offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
-
+            #offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
+            offset_x = offset_x_list[idx]
             if offset_x != 0:
-                #bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)
-                bin_mask = self.gpu_roll(bin_mask, shift=offset_x, axis=1).astype (bool)
+                bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)
+                #bin_mask = self.gpu_roll(bin_mask, shift=offset_x, axis=1).astype (bool)
             masked_mask = bin_mask
             
             #This one is for edge expanding for "close-by" objects
@@ -230,7 +220,8 @@ class LeftSBSProcessor:
             #As fast as you can get here
             rows, cols = np.nonzero(bin_mask)
             #result_img[rows, cols, :] = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
-            result_img[rows, cols, :] = self.gpu_roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
+            #result_img[rows, cols, :] = self.gpu_roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
+            result_img[rows, cols, :] = offset_img[idx][rows, cols, :]# masked_img [rows, cols, :]
 
             result_blank_mask |= masked_mask
 
