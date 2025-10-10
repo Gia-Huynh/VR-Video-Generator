@@ -128,7 +128,7 @@ class LeftSBSProcessor:
         for i in range (int(offset_range[0]), -1, 2): #Cai nay giup save 20% time, 550 phut xuong 450 phut
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         cutoff_list.append ((0 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
-        for i in range (1, int(offset_range[1]), 2):
+        for i in range (1, int(offset_range[1]), 1): #What's in front of you should not be coarse
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         cutoff_list.append (limit_step)
         cutoff_list = sorted (cutoff_list)
@@ -163,9 +163,10 @@ class LeftSBSProcessor:
         self.depth_list.append (depth.copy())
         return depth
     def gpu_roll (self, img, shift, axis):  #Same input signature as np.roll to ensure replacability
+        #Note for future Gia: Not much speed improvement I'm afraid, but there was... or so I believe
         #print ("shift roll: ",shift)
-        return np.roll(img, shift=shift, axis=axis).astype (bool)
-        #return torch.roll (torch.from_numpy(img).to(torch.device('cuda')), shifts=shift, dims=axis).cpu().numpy()
+        #return np.roll(img, shift=shift, axis=axis).astype (bool)
+        return torch.roll (torch.from_numpy(img).to(torch.device('cuda')), shifts=shift, dims=axis).cpu().numpy()
     
     def gpu_roll_with_offset (self, img, offset_list, axis):
         result = []
@@ -174,7 +175,6 @@ class LeftSBSProcessor:
             result.append (torch.roll (img_gpu, shifts=i, dims=axis)[None, :]) #.unsqueeze(0)
         result = torch.cat(result, dim=0)  # stack on GPU
         return result.cpu().numpy()
-    #np.roll(bin_mask, shift=offset_x, axis=1)
     def left_side_sbs(self, raw_img, inference_queue, result_queue):
         #Reuse old depth if frame is not much different shenanigan.
         depth = self.get_depth(raw_img, inference_queue, result_queue)
@@ -202,28 +202,23 @@ class LeftSBSProcessor:
         offset_img = self.gpu_roll_with_offset(raw_img, offset_list = offset_x_list, axis=1)
         for idx, i, curr_step in zip(range(len(cutoff_list)), cutoff_list, step_list):
             bin_mask = (((i - 0.05 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
-
-            rows, cols = np.nonzero(bin_mask)
-            #offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
+            
             offset_x = offset_x_list[idx]
             if offset_x != 0:
                 bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)
-                #bin_mask = self.gpu_roll(bin_mask, shift=offset_x, axis=1).astype (bool)
-            masked_mask = bin_mask
+            #masked_mask = bin_mask
             
             #This one is for edge expanding for "close-by" objects
             if (offset_x > 0): #From >0
-               edge_fill_positive |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[-2, 1, 1]], dtype=np.int16))>0
+               edge_fill_positive |= cv2.filter2D(bin_mask.astype(np.int16), -1, np.array([[-2, 1, 1]], dtype=np.int16))>0
             if (offset_x < 0):
-               edge_fill_negative |= cv2.filter2D(masked_mask.astype(np.int16), -1, np.array([[1, 1, -2]], dtype=np.int16))>0
+               edge_fill_negative |= cv2.filter2D(bin_mask.astype(np.int16), -1, np.array([[1, 1, -2]], dtype=np.int16))>0
             
             #As fast as you can get here
             rows, cols = np.nonzero(bin_mask)
-            #result_img[rows, cols, :] = np.roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
-            #result_img[rows, cols, :] = self.gpu_roll(raw_img, shift=offset_x, axis=1)[rows, cols, :]# masked_img [rows, cols, :]
             result_img[rows, cols, :] = offset_img[idx][rows, cols, :]# masked_img [rows, cols, :]
 
-            result_blank_mask |= masked_mask
+            result_blank_mask |= bin_mask
 
         result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
         kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
@@ -250,11 +245,6 @@ class LeftSBSProcessor:
         result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
         self.print_once = True
         return cv2.hconcat([result_img, raw_img])
-        """if self.last_frame is not None:
-            return cv2.hconcat([result_img, self.last_frame])
-            #return cv2.hconcat([result_img, raw_img])
-        else:
-            return cv2.hconcat([result_img, raw_img])"""
 
 def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):
     #Silence all output of child process
@@ -263,9 +253,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
     total_step = (min (end, video_length) - begin)
     sbsObj = LeftSBSProcessor()
     
-    print_flush ("Worker begin from ",begin," to ",end)    
-    print_flush ("video length: ", get_length (file_path), "frame count: ",video_length, ", begin and end: ",begin, end)
-    #random_sleep ((0, int(30 * (begin/video_length))), "Sleeping some more to diverge them process")
+    print_flush ("Worker begin from ",begin," to ",end, "\n","video length: ", get_length (file_path), "frame count: ",video_length, ", begin and end: ",begin, end)  
     begin_time = time.time()
 
     global ffmpeg_config

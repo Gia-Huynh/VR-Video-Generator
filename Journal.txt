@@ -1,5 +1,9 @@
-Maria Nagai 0.04 -0.2 (Or 0.02?).mkv is the holy grail, jesus.
-So now I�m testing the same config (0.04, -0.02) on other videos.
+﻿Maria Nagai 0.04 -0.2 (Or 0.02?).mkv is the holy grail, jesus.
+So now I’m testing the same config (0.04, -0.02) on other videos.
 
 Found a way to optimize speed, let the gpu handle np.roll (torch.roll)
 torch.roll (img_gpu, shifts=i, dims=1).cpu().numpy()
+
+Tôi ngày 10/10: Tối nay chạy video marianagai concutoiphatno.mkv, và video worstorbest (KILL ME GPUROLL.mkv), để test 0.11 -0.33.
+Note: Chạy lại line profiler để xem cái nào là bottleneck, nhưng ưu tiên thấp.
+Ưu tiên cao nhất là get a working model, then BUILD THE ACTUAL GOOD UI FOR IT.
