@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import torch
 from torch.amp import autocast #For FP16
+from torchvision.transforms.v2.functional import gaussian_blur_image, gaussian_blur
 from depth_anything_v2.dpt import DepthAnythingV2
 #Video Export Libraries
 import subprocess
@@ -79,7 +80,7 @@ video_length = 0
     
 #Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
 #Options in [input options] are applied to the input. Options in [output options] are applied to the output.
-ffmpeg_device = 'nvidia'
+ffmpeg_device = 'cpu'
 video_length, ffmpeg_config = SpF.get_ffmpeg_config(VideoDir, ffmpeg_device)
 # Initialize logging
 #logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
@@ -233,36 +234,69 @@ class LeftSBSProcessor:
             result_img[rows, cols, :] = offset_img[idx][rows, cols, :]# masked_img [rows, cols, :]
             result_blank_mask |= bin_mask
 
-        result_img = result_img.to(torch.device('cpu')).detach().numpy()
+        #original
+        """result_img = result_img.to(torch.device('cpu')).detach().numpy()
         edge_fill_positive = edge_fill_positive.to(torch.device('cpu'))
         edge_fill_negative = edge_fill_negative.to(torch.device('cpu'))
         result_zero_mask = (~result_blank_mask).to(torch.device('cpu')).detach().numpy()  # inverted boolean mask where no pixel was filled
         del offset_img
         del depth_gpu
         torch.cuda.empty_cache()
-        kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
-        result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
+        #kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
+        #result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
         #Fill result_img with blurred value from zero_mask
-        result_zero_mask = result_zero_mask.astype(bool)
-
+        #result_zero_mask = result_zero_mask.astype(bool)
+        
         result_img[result_zero_mask] = (cv2.stackBlur
                                                 (raw_img
-                                                #,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
+                                            #,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
                                                 ,(limit_step*2 + 3, limit_step*2 + 1)
                                         ))[result_zero_mask] #Help fill black gap
+        
         result_img[result_zero_mask] = (cv2.stackBlur
                                                 (result_img
                                                 ,(limit_step + (limit_step%2==0), round(limit_step/8)*2 + 1)
                                         ))[result_zero_mask] #Help smoothen out the transition
-        #Is this line necessary?
-        #edge_fill_positive = cv2.dilate(edge_fill_positive.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
-
         result_img[edge_fill_positive] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_positive]
         result_img[edge_fill_negative] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_negative]
-
         result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
         self.print_once = True
         return cv2.hconcat([result_img, raw_img])
+        """
+        #gpu version:
+        result_zero_mask = (~result_blank_mask).to (torch.float32)
+        kernel_expand = torch.ones ((max(kernel_size, 1),  max(kernel_size, 1)), dtype=torch.float32, device=bin_mask.device).unsqueeze(0).unsqueeze(0)
+        result_zero_mask =  torch.nn.functional.conv2d(
+                                                        (torch.nn.functional.conv2d(
+                                                            result_zero_mask.unsqueeze(0).unsqueeze(0),
+                                                            kernel_expand,
+                                                            padding='same')[0, 0] > 0
+                                                        ).to (torch.float32).unsqueeze(0).unsqueeze(0),
+                                                        kernel_expand,
+                                                        padding='same'
+                                                    )[0, 0] >= max(kernel_size, 1) * max(kernel_size, 1)
+        
+        #Fill result_img with blurred value from zero_mask
+        result_zero_mask = result_zero_mask.to(torch.bool)
+        
+        result_img[result_zero_mask] = (gaussian_blur(img_gpu.permute (2,0,1), #raw_img
+                                                      (limit_step*2 + 3, limit_step*2 + 1)
+                                        )).permute (1,2,0)[result_zero_mask] #Help fill black gap
+        
+        
+        result_img[result_zero_mask] = (gaussian_blur
+                                                (result_img.permute (2,0,1)
+                                                ,(limit_step + (limit_step%2==0), round(limit_step/8)*2 + 1)
+                                        )).permute (1,2,0)[result_zero_mask] #Help smoothen out the transition
+        #Is this line necessary?
+        #edge_fill_positive = cv2.dilate(edge_fill_positive.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
+        t = gaussian_blur_image(result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))
+        result_img[edge_fill_positive] = t [edge_fill_positive]
+        result_img[edge_fill_negative] = t [edge_fill_negative]
+
+        result_img[:, 0:round(offset_x/3), :] = img_gpu[:, 0:round(offset_x/3), :]
+        self.print_once = True
+        return torch.concat([result_img, img_gpu], dim=1).detach().cpu().numpy()#cv2.hconcat([result_img, raw_img])
 
     def left_side_sbs_cpu(self, raw_img, inference_queue, result_queue):
         #Reuse old depth if frame is not much different shenanigan.
@@ -328,11 +362,10 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
     ffmpeg_proc = None
     last_i = begin
     FrameList = []
-    #profiler = LineProfiler()
-    #profiler.add_function(sbsObj.left_side_sbs)
-    #profiler.add_function(sbsObj.get_depth)
-    #profiler.add_function(sbsObj.get_cutoff)
-    #profiler.enable()        
+    profiler = LineProfiler()
+    profiler.add_function(sbsObj.get_depth)
+    profiler.add_function(sbsObj.left_side_sbs)
+    profiler.enable()        
     try:
         for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
@@ -343,12 +376,15 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 print_flush ("Frame read error at i = ",i,", adding black frame to compensate.")
             if (len (FrameList) == max_frame_count) or (i == (min (end-1, video_length-1))):
                 step_taken = i - begin
-                print_flush ("Writing file ", i, "with length (in frames): ", len(FrameList))
+                #print_flush ("Writing file ", i, "with length (in frames): ", len(FrameList))
                 print_flush ("Time elapsed (minutes):", ((time.time() - begin_time))/60.0,", ETA:", ((time.time() - begin_time) / step_taken * (total_step - step_taken))/60.0,", Estimated Total Time (minutes):", ((time.time() - begin_time) / step_taken * total_step)/60.0)
                 print_flush (str(int(step_taken / total_step * 10000)/100), " %")            
 
                 if (ffmpeg_proc is not None): #If the previous ffmpeg subprocess did not finished, wait till it's done before generating new one
+                    t = time.time()
                     ffmpeg_proc.wait()
+                    if (time.time() - t) > 0.0:
+                        print ("Wait for ffmpeg video write for",time.time() - t,"seconds")
                 ffmpeg_proc = subprocess.Popen(ffmpeg_config + [f'{SubClipDir}{last_i}_{i}.mp4'],
                                            stdin=subprocess.PIPE) #ffmpeg write time should only takes about 0.5 seconds, tiny amount
                 for frame in FrameList:
@@ -359,7 +395,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 FrameList = []
                 gc.collect()
         print_flush ("Worker ending")
-        #dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
+        dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
         try:
             ffmpeg_proc.wait()
         except:
@@ -374,8 +410,9 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
         print_flush(f"[ERROR] Segment {begin} failed: {e}")
         print_flush(f"[ERROR] {begin} failed at frame {i}")
         print_flush(traceback.format_exc())
-        raise e
-        return None
+        #raise e
+        random_sleep ((9,10), "Worker error, sleep then exit")
+        return 0
 def we_ballin ():
     step = math.ceil((min(end_frame, video_length) - start_frame)/Num_Workers)
     frame_indices = range(start_frame, min(end_frame, video_length), step)

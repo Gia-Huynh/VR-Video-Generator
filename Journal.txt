@@ -17,3 +17,5 @@ Hiện tại ratio cho clip maria nagai là 86p video tốn 460p chạy, gpu uno
 11/10:
 Đã optimize left_side_sbs sang xài gpu, ratio từ 5x xuống 3x, khá oke
 User interface next.
+Không thặc sự là 3x tí nào cả, vẫn đâu đó 4x-5x vì gpu giờ làm nhiều operation quá, nó khiến  prediction chậm đi, và chuyển dữ liệu từ gpu sang numpy và ngược lại lâu vailoz.
+nên modify dpt.py tạo thêm hàm infer_image_gpu để đỡ dịch file.
