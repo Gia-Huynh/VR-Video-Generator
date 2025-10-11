@@ -18,20 +18,23 @@ def dump_line_profile_to_csv(profiler, filename="line_profile_output.csv"):
                 "Function", "Line #", "Line Content",
                 "Hits", "Total Time (µs)", "Per Hit (µs)"
             ])
-
-        for code_obj, timings in profiler.timings.items():
-            func_name = code_obj.co_name
+        FUCK  = profiler.get_stats()
+        for (filename, first_lineno, function_name), timings in FUCK.timings.items():
+            #func_name = code_obj.co_name
             try:
-                src_lines, start_line = inspect.getsourcelines(code_obj)
-                line_dict = {start_line + i: line.rstrip() for i, line in enumerate(src_lines)}
+                #src_lines, start_line = inspect.getsourcelines(timings.code)
+                #line_dict = {start_line + i: line.rstrip() for i, line in enumerate(src_lines)}
+                with open(filename, "r", encoding="utf-8") as f:
+                    src_lines = f.readlines()
+                line_dict = {1 + i: line.rstrip() for i, line in enumerate(src_lines)}
             except Exception:
                 line_dict = {}
 
-            for line_no, total_time, hits in timings:
+            for line_no, hits, total_time in timings:
                 line_content = line_dict.get(line_no, "")
                 per_hit = total_time / hits if hits else 0
                 writer.writerow([
-                    func_name, line_no, line_content,
+                    function_name, line_no, line_content,
                     hits, total_time, f"{per_hit:.2f}"
                 ])
 

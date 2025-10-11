@@ -7,3 +7,9 @@ torch.roll (img_gpu, shifts=i, dims=1).cpu().numpy()
 Tôi ngày 10/10: Tối nay chạy video marianagai concutoiphatno.mkv, và video worstorbest (KILL ME GPUROLL.mkv), để test 0.11 -0.33.
 Note: Chạy lại line profiler để xem cái nào là bottleneck, nhưng ưu tiên thấp.
 Ưu tiên cao nhất là get a working model, then BUILD THE ACTUAL GOOD UI FOR IT.
+
+
+10/10:
+(np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) IS NOT AGNOSTIC TO IMAGE SIZE, FUCK ME, need to normalize
+Currently our worst bottleneck is waiting for gpu to predict the image.
+Hiện tại ratio cho clip maria nagai là 86p video tốn 460p chạy, gpu unoptimized usage.

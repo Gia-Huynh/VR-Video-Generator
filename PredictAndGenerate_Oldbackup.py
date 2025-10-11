@@ -25,29 +25,29 @@ parser.add_argument('--DebugDir',   type=str,
 parser.add_argument('--SubClipDir', type=str,
                                     default="D:/TEMP/JAV Subclip/")
 parser.add_argument('--VideoDir',   type=str,
-                                    default="Videos/Input/Original/Maria Nagai.mp4")
+                                    default="Videos/Drive.2011.1080p.BluRay.DDP5.1.x265.10bit-GalaxyRG265.mkv")
 parser.add_argument('--OutputDir',  type=str,
-                                    default="DeleteThis.mkv")
+                                    default="SBS Margin Call.mp4")
 parser.add_argument('--encoder',    type=str,
-                                    default='vits')
+                                    default='vitb')
 parser.add_argument('--encoder_path',type=str,
-                                    default='depth_anything_v2/checkpoints/depth_anything_v2_vits.pth')
+                                    default='depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth')
 parser.add_argument('--offset_fg',  type=float,
                                     default=0.02) #0.0125 chưa đủ đô
 parser.add_argument('--offset_bg',  type=float,
-                                    default=-0.05) #-0.0225 chưa đủ đô
+                                    default=-0.02) #-0.0225 chưa đủ đô
 parser.add_argument('--Num_Workers',type=int,
-                                    default=8)
+                                    default=24)
 parser.add_argument('--num_gpu',    type=int,
                                     default=1)
 parser.add_argument('--Num_GPU_Workers',type=int,
-                                    default=2)
+                                    default=3)
 parser.add_argument('--Max_Frame_Count',type=int,
-                                    default=15)
+                                    default=30)
 parser.add_argument('--start_frame',type=int,
                                     default=0)
 parser.add_argument('--end_frame',  type=int,
-                                    default=99999999999999) #82800 + 450 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
+                                    default=9999999999999) #82800 + 450 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
 parser.add_argument('--repair_mode',type=int,
                                     default=0) #Repair mode 0: Default option, clear debug/subclip dir, rerun everything and combine
                                                 #Repair mode 1: Just run videos, clear only debug dir, rerun everything, no combine
@@ -94,7 +94,6 @@ def inference_worker (in_queue, out_queue, DEVICE):
     model.infer_image (np.zeros((1080, 1920, 3), dtype = np.uint8))
     torch.cuda.empty_cache()
     print_flush ("Model loaded")
-    
     while True:
         task = in_queue.get()
         if task is None:
@@ -103,11 +102,10 @@ def inference_worker (in_queue, out_queue, DEVICE):
         with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
             result = model.infer_image(img)
         out_queue.put(result)
-     
-prof = LineProfiler()   
+        
 class LeftSBSProcessor:
     def __init__(self):
-        self.depth_dampening_count = 3 #fourth one is only 0.04125
+        self.depth_dampening_count = 4 #fourth one is only 0.04125
         self.depth_dampening_ratio = 0.5
         self.depth_dampening_initial_value = 0.33
         self.depth_list = []
@@ -146,12 +144,11 @@ class LeftSBSProcessor:
         if (self.last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) and (self.last_depth_flag == True):
             depth = self.depth_list[-1]
             return depth
-        if (self.last_frame is None):
-            inference_queue.put((raw_img,))
+
         #add raw_img to gpu queue and get result
         self.last_frame = raw_img.copy()
-        depth = result_queue.get()      # I CHEAT HERE
         inference_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
+        depth = result_queue.get()
 
         #Intialization
         while (len(self.depth_list)<self.depth_dampening_count):
@@ -169,7 +166,7 @@ class LeftSBSProcessor:
         #Note for future Gia: Not much speed improvement I'm afraid, but there was... or so I believe
         #print ("shift roll: ",shift)
         #return np.roll(img, shift=shift, axis=axis).astype (bool)
-        return torch.roll (torch.from_numpy(img).to(torch.device('cuda'), non_blocking=True), shifts=shift, dims=axis).cpu().numpy()
+        return torch.roll (torch.from_numpy(img).to(torch.device('cuda')), shifts=shift, dims=axis).cpu().numpy()
     
     def gpu_roll_with_offset (self, img, offset_list, axis):
         result = []
@@ -177,66 +174,15 @@ class LeftSBSProcessor:
         for i in offset_list:
             result.append (torch.roll (img_gpu, shifts=i, dims=axis)[None, :]) #.unsqueeze(0)
         result = torch.cat(result, dim=0)  # stack on GPU
-        #return result.cpu().numpy(), img_gpu
-        return result, img_gpu
+        return result.cpu().numpy()
     def left_side_sbs_cpu(self, raw_img, inference_queue, result_queue):
-        #Reuse old depth if frame is not much different shenanigan.
-        depth = self.get_depth(raw_img, inference_queue, result_queue)
-        #Initialization
-        #Normal image fill
-        result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
-        result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
-        shaded_result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
-        #Edge blurring DOES NOT CONSUME CPU TIME MUCH.
-        edge_fill_positive = np.zeros(raw_img.shape[:2], dtype=bool)
-        edge_fill_negative = np.zeros(raw_img.shape[:2], dtype=bool)
-        #Kernel init
-        kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
-        #Get cut-off and related matrix.
-        cutoff_list, offset_range, step_list, limit_step, offset_x_list = self.get_cutoff(depth)
-        offset_img, _ = self.gpu_roll_with_offset(raw_img, offset_list = offset_x_list, axis=1)
-        offset_img = offset_img.cpu().numpy()
-        for idx, i, curr_step in zip(range(len(cutoff_list)), cutoff_list, step_list):
-            bin_mask = (((i - 0.05 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
-            offset_x = offset_x_list[idx]
-            if offset_x != 0:
-                bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)            
-            #This one is for edge expanding for "close-by" objects
-            if (offset_x > 0): #From >0
-               edge_fill_positive |= cv2.filter2D(bin_mask.astype(np.int16), -1, np.array([[-2, 1, 1]], dtype=np.int16))>0
-            if (offset_x < 0):
-               edge_fill_negative |= cv2.filter2D(bin_mask.astype(np.int16), -1, np.array([[1, 1, -2]], dtype=np.int16))>0
-            #As fast as you can get here
-            rows, cols = np.nonzero(bin_mask)
-            result_img[rows, cols, :] = offset_img[idx][rows, cols, :]# masked_img [rows, cols, :]
-            result_blank_mask |= bin_mask
-        result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
-        kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
-        result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
-        #Fill result_img with blurred value from zero_mask
-        result_zero_mask = result_zero_mask.astype(bool)
-        result_img[result_zero_mask] = (cv2.stackBlur
-                                                (raw_img
-                                                #,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
-                                                ,(limit_step*2 + 3, limit_step*2 + 1)
-                                        ))[result_zero_mask] #Help fill black gap
-        result_img[result_zero_mask] = (cv2.stackBlur
-                                                (result_img
-                                                ,(limit_step + (limit_step%2==0), round(limit_step/8)*2 + 1)
-                                        ))[result_zero_mask] #Help smoothen out the transition
-        result_img[edge_fill_positive] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_positive]
-        result_img[edge_fill_negative] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_negative]
-        result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
-        self.print_once = True
-        return cv2.hconcat([result_img, raw_img])
-    def left_side_sbs(self, raw_img, inference_queue, result_queue):
         #Reuse old depth if frame is not much different shenanigan.
         depth = self.get_depth(raw_img, inference_queue, result_queue)
 
         #Initialization
         #Normal image fill
-        #result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
-        #result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
+        result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
+        result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
         shaded_result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
         #Edge blurring DOES NOT CONSUME CPU TIME MUCH.
         edge_fill_positive = np.zeros(raw_img.shape[:2], dtype=bool)
@@ -252,62 +198,29 @@ class LeftSBSProcessor:
         #    for i, curr_step in zip(cutoff_list, step_list):
         #        t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
         #        print_flush (t,' ',round(t),' ',int(t))
-
-        offset_img, img_gpu = self.gpu_roll_with_offset(raw_img, offset_list = offset_x_list, axis=1)
-        depth_gpu = torch.from_numpy(depth).to(torch.device('cuda'), non_blocking=True)
-        edge_fill_positive = torch.zeros(raw_img.shape[:2], dtype=torch.bool).to(torch.device('cuda'), non_blocking=True)
-        edge_fill_negative = torch.zeros(raw_img.shape[:2], dtype=torch.bool).to(torch.device('cuda'), non_blocking=True)
-        
-        result_img = torch.zeros(raw_img.shape, dtype=torch.uint8).to(torch.device('cuda'), non_blocking=True)
-        result_blank_mask = torch.zeros(raw_img.shape[:2], dtype=torch.bool).to(torch.device('cuda'), non_blocking=True)
+                
+        offset_img = self.gpu_roll_with_offset(raw_img, offset_list = offset_x_list, axis=1)
         for idx, i, curr_step in zip(range(len(cutoff_list)), cutoff_list, step_list):
-            bin_mask = (((i - 0.05 * curr_step) <= depth_gpu) & (depth_gpu < i + 1.05 * curr_step)).to(torch.bool)
+            bin_mask = (((i - 0.05 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).astype(bool)
             
             offset_x = offset_x_list[idx]
             if offset_x != 0:
-                bin_mask = torch.roll(bin_mask, shifts=offset_x, dims=1).to(torch.bool)
+                bin_mask = np.roll(bin_mask, shift=offset_x, axis=1).astype (bool)
             #masked_mask = bin_mask
             
             #This one is for edge expanding for "close-by" objects
-            #if (offset_x > 0): #From >0
-            #   edge_fill_positive |= cv2.filter2D(bin_mask.astype(np.int16), -1, np.array([[-2, 1, 1]], dtype=np.int16))>0
-            #if (offset_x < 0):
-            #   edge_fill_negative |= cv2.filter2D(bin_mask.astype(np.int16), -1, np.array([[1, 1, -2]], dtype=np.int16))>0
-
-            #I ain't trusting this gpt shit
-            if offset_x > 0:
-                kernel = torch.tensor([[-2, 1, 1]], dtype=torch.float32, device=bin_mask.device)
-                # shape [out_channels=1, in_channels=1, kH=1, kW=3]
-                kernel = kernel.unsqueeze(0).unsqueeze(0)
-                edge_fill_positive |= (
-                    torch.nn.functional.conv2d(bin_mask.float().unsqueeze(0).unsqueeze(0), kernel, padding='same')[0, 0] > 0
-                )
-
-            elif offset_x < 0:
-                kernel = torch.tensor([[1, 1, -2]], dtype=torch.float32, device=bin_mask.device)
-                kernel = kernel.unsqueeze(0).unsqueeze(0)
-                edge_fill_negative |= (
-                    torch.nn.functional.conv2d(bin_mask.float().unsqueeze(0).unsqueeze(0), kernel, padding='same')[0, 0] > 0
-                )
-                
+            if (offset_x > 0): #From >0
+               edge_fill_positive |= cv2.filter2D(bin_mask.astype(np.int16), -1, np.array([[-2, 1, 1]], dtype=np.int16))>0
+            if (offset_x < 0):
+               edge_fill_negative |= cv2.filter2D(bin_mask.astype(np.int16), -1, np.array([[1, 1, -2]], dtype=np.int16))>0
+            
             #As fast as you can get here
-            rows, cols = torch.nonzero(bin_mask,as_tuple=True)
-            #rows = rows.to(torch.device('cpu'))
-            #cols = cols.to(torch.device('cpu'))
-            #print ("type(result_img): ", type(result_img))
-            #print ("type(offset_img): ", type(offset_img))
-            #print ("type(offset_img[idx]): ", type(offset_img[idx]))
-            #print ("type(rows): ", type(rows))
-            #print ("type(cols): ", type(cols))
-            #print ("type(result_img[rows, cols, :]): ", type(result_img[rows, cols, :]))
+            rows, cols = np.nonzero(bin_mask)
             result_img[rows, cols, :] = offset_img[idx][rows, cols, :]# masked_img [rows, cols, :]
 
             result_blank_mask |= bin_mask
-        #result_blank_mask
-        result_img = result_img.to(torch.device('cpu')).detach().numpy()
-        edge_fill_positive = edge_fill_positive.to(torch.device('cpu'))
-        edge_fill_negative = edge_fill_negative.to(torch.device('cpu'))
-        result_zero_mask = (~result_blank_mask).to(torch.device('cpu')).detach().numpy()  # inverted boolean mask where no pixel was filled
+
+        result_zero_mask = ~result_blank_mask  # inverted boolean mask where no pixel was filled
         kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
         result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
         #Fill result_img with blurred value from zero_mask
@@ -324,6 +237,7 @@ class LeftSBSProcessor:
                                         ))[result_zero_mask] #Help smoothen out the transition
         #Is this line necessary?
         #edge_fill_positive = cv2.dilate(edge_fill_positive.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
+
 
         result_img[edge_fill_positive] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_positive]
         result_img[edge_fill_negative] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_negative]
@@ -346,11 +260,6 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
     ffmpeg_proc = None
     last_i = begin
     FrameList = []
-    profiler = LineProfiler()
-    profiler.add_function(sbsObj.left_side_sbs)
-    profiler.add_function(sbsObj.get_depth)
-    profiler.add_function(sbsObj.get_cutoff)
-    profiler.enable()        
     try:
         for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
@@ -377,12 +286,12 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 FrameList = []
                 gc.collect()
         print_flush ("Worker ending")
-        dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
         try:
             ffmpeg_proc.wait()
         except:
             pass
         return 0
+        #return [i, left_side_sbs(raw_img)]
     except Exception as e:
         print_flush(f"[ERROR] Segment {begin} failed: {e}")
         print_flush(f"[ERROR] {begin} failed at frame {i}")
