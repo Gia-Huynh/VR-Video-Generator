@@ -53,7 +53,6 @@ parser.add_argument('--repair_mode',type=int,
                                                 #Repair mode 1: Just run videos, clear only debug dir, rerun everything, no combine
                                                 #Repair mode 2: Just combine videos with audio
                                                 #Repair mode 3: Combine video only, outputing temp.mp4
-
 args = parser.parse_args()
 
 DebugDir = args.DebugDir
@@ -80,7 +79,7 @@ video_length = 0
     
 #Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
 #Options in [input options] are applied to the input. Options in [output options] are applied to the output.
-ffmpeg_device = 'nvidia'
+ffmpeg_device = 'cpu'
 video_length, ffmpeg_config = SpF.get_ffmpeg_config(VideoDir, ffmpeg_device)
 # Initialize logging
 #logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
@@ -103,8 +102,7 @@ def inference_worker (in_queue, out_queue, DEVICE):
         with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
             result = model.infer_image(img)
         out_queue.put(result)
-     
-prof = LineProfiler()   
+      
 class LeftSBSProcessor:
     def __init__(self):
         self.depth_dampening_count = 3 #fourth one is only 0.04125
@@ -167,8 +165,6 @@ class LeftSBSProcessor:
         return depth
     def gpu_roll (self, img, shift, axis):  #Same input signature as np.roll to ensure replacability
         #Note for future Gia: Not much speed improvement I'm afraid, but there was... or so I believe
-        #print ("shift roll: ",shift)
-        #return np.roll(img, shift=shift, axis=axis).astype (bool)
         return torch.roll (torch.from_numpy(img).to(torch.device('cuda'), non_blocking=True), shifts=shift, dims=axis).cpu().numpy()
     
     def gpu_roll_with_offset (self, img, offset_list, axis):
@@ -177,8 +173,8 @@ class LeftSBSProcessor:
         for i in offset_list:
             result.append (torch.roll (img_gpu, shifts=i, dims=axis)[None, :]) #.unsqueeze(0)
         result = torch.cat(result, dim=0)  # stack on GPU
-        #return result.cpu().numpy(), img_gpu
-        return result, img_gpu
+        return result, img_gpu #return result.cpu().numpy(), img_gpu
+    
     def left_side_sbs_cpu(self, raw_img, inference_queue, result_queue):
         #Reuse old depth if frame is not much different shenanigan.
         depth = self.get_depth(raw_img, inference_queue, result_queue)
@@ -244,7 +240,6 @@ class LeftSBSProcessor:
         #Kernel init
         kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
         
-
         #Get cut-off and related matrix.
         cutoff_list, offset_range, step_list, limit_step, offset_x_list = self.get_cutoff(depth)
         
@@ -268,13 +263,6 @@ class LeftSBSProcessor:
                 bin_mask = torch.roll(bin_mask, shifts=offset_x, dims=1).to(torch.bool)
             #masked_mask = bin_mask
             
-            #This one is for edge expanding for "close-by" objects
-            #if (offset_x > 0): #From >0
-            #   edge_fill_positive |= cv2.filter2D(bin_mask.astype(np.int16), -1, np.array([[-2, 1, 1]], dtype=np.int16))>0
-            #if (offset_x < 0):
-            #   edge_fill_negative |= cv2.filter2D(bin_mask.astype(np.int16), -1, np.array([[1, 1, -2]], dtype=np.int16))>0
-
-            #I ain't trusting this gpt shit
             if offset_x > 0:
                 kernel = torch.tensor([[-2, 1, 1]], dtype=torch.float32, device=bin_mask.device)
                 # shape [out_channels=1, in_channels=1, kH=1, kW=3]
@@ -292,18 +280,9 @@ class LeftSBSProcessor:
                 
             #As fast as you can get here
             rows, cols = torch.nonzero(bin_mask,as_tuple=True)
-            #rows = rows.to(torch.device('cpu'))
-            #cols = cols.to(torch.device('cpu'))
-            #print ("type(result_img): ", type(result_img))
-            #print ("type(offset_img): ", type(offset_img))
-            #print ("type(offset_img[idx]): ", type(offset_img[idx]))
-            #print ("type(rows): ", type(rows))
-            #print ("type(cols): ", type(cols))
-            #print ("type(result_img[rows, cols, :]): ", type(result_img[rows, cols, :]))
             result_img[rows, cols, :] = offset_img[idx][rows, cols, :]# masked_img [rows, cols, :]
-
             result_blank_mask |= bin_mask
-        #result_blank_mask
+
         result_img = result_img.to(torch.device('cpu')).detach().numpy()
         edge_fill_positive = edge_fill_positive.to(torch.device('cpu'))
         edge_fill_negative = edge_fill_negative.to(torch.device('cpu'))
@@ -346,11 +325,11 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
     ffmpeg_proc = None
     last_i = begin
     FrameList = []
-    profiler = LineProfiler()
-    profiler.add_function(sbsObj.left_side_sbs)
-    profiler.add_function(sbsObj.get_depth)
-    profiler.add_function(sbsObj.get_cutoff)
-    profiler.enable()        
+    #profiler = LineProfiler()
+    #profiler.add_function(sbsObj.left_side_sbs)
+    #profiler.add_function(sbsObj.get_depth)
+    #profiler.add_function(sbsObj.get_cutoff)
+    #profiler.enable()        
     try:
         for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
@@ -377,7 +356,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 FrameList = []
                 gc.collect()
         print_flush ("Worker ending")
-        dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
+        #dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
         try:
             ffmpeg_proc.wait()
         except:
