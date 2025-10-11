@@ -192,7 +192,7 @@ def get_ffmpeg_config (VideoDir, ffmpeg_device = 'cpu'):
     if (ffmpeg_device == 'cpu'):
         ffmpeg_encoder = 'libx264' #'libx264' for cpu
         ffmpeg_config += ['-c:v', ffmpeg_encoder]
-        ffmpeg_crf = '20'
+        ffmpeg_crf = '21'
         ffmpeg_preset = 'veryfast'    
         ffmpeg_config += ['-crf', ffmpeg_crf, '-preset', ffmpeg_preset]  # use crf with libx264
     elif (ffmpeg_device == 'nvidia'):

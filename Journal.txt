@@ -13,3 +13,7 @@ Note: Chạy lại line profiler để xem cái nào là bottleneck, nhưng ưu 
 (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) IS NOT AGNOSTIC TO IMAGE SIZE, FUCK ME, need to normalize
 Currently our worst bottleneck is waiting for gpu to predict the image.
 Hiện tại ratio cho clip maria nagai là 86p video tốn 460p chạy, gpu unoptimized usage.
+
+11/10:
+Đã optimize left_side_sbs sang xài gpu, ratio từ 5x xuống 3x, khá oke
+User interface next.

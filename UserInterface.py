@@ -133,10 +133,10 @@ with window(label="PredictAndGenerate", tag="main_window", width=1580, height=78
                 add_input_int(label="num_gpu", default_value=args["num_gpu"], callback=update_value, user_data="num_gpu")
                 add_input_int(label="Num_GPU_Workers", default_value=args["Num_GPU_Workers"], callback=update_value, user_data="Num_GPU_Workers")
                 add_input_int(label="Max_Frame_Count", default_value=args["Max_Frame_Count"], callback=update_value, user_data="Max_Frame_Count")
+                add_text("Debug Parameter, don't touch")
                 add_combo(label="repair_mode", items=["0 - Full", "1 - Rerun no combine", "2 - Combine - Export video", "3 - [Debug] Combine video only, temp.mp4"],
                           default_value="0 - Full",
                           callback=lambda s,a,u: update_value(s,int(a[0]),"repair_mode"), user_data="repair_mode")
-                add_text("Debug Parameter, don't touch")
                 add_input_text(label="start_frame", default_value=args["start_frame"], callback=update_value, user_data="start_frame")
                 add_input_text(label="end_frame", default_value=args["end_frame"], callback=update_value, user_data="end_frame")
 
