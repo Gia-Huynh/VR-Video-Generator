@@ -101,7 +101,7 @@ def inference_worker (in_queue, out_queue, DEVICE):
             break
         img = task[0]
         with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
-            result = model.infer_image(img)
+            result = model.infer_image_gpu(img)
         out_queue.put(result)
       
 class LeftSBSProcessor:
@@ -126,7 +126,7 @@ class LeftSBSProcessor:
         limit_step = math.ceil(depth.max())
         offset_range = [offset_bg * depth.shape[0], offset_fg * depth.shape[0] * limit_step/14.0]
         cutoff_list = []
-        for i in range (int(offset_range[0]), -1, 2): #Cai nay giup save 20% time, 550 phut xuong 450 phut
+        for i in range (int(offset_range[0]), -1, 1): #(...,-1, 2) Cai nay giup save 20% time, 550 phut xuong 450 phut
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         cutoff_list.append ((0 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         for i in range (1, int(offset_range[1]), 1): #What's in front of you should not be coarse
@@ -154,40 +154,44 @@ class LeftSBSProcessor:
 
         #Intialization
         while (len(self.depth_list)<self.depth_dampening_count):
-            self.depth_list.append(depth.copy())
-
+            self.depth_list.append(depth)  #.clone()
+        
         t = self.depth_dampening_initial_value
         depth = depth*self.depth_dampening_original_ratio
+        if (len(self.depth_list) > self.depth_dampening_count):
+            print_flush ("EXCUSE WE WTF IS THIS DEPTH LIST LENGTH?", len(self.depth_list))
         for i in range (len(self.depth_list)-1, -1, -1):
             depth =  depth + self.depth_list[i]*t
             t = t*self.depth_dampening_ratio
         self.depth_list.pop(0)
-        self.depth_list.append (depth.copy())
+        self.depth_list.append (depth) #.clone()
+        #DEBUG ONLY
+        #self.depth_list[-1] = depth.clone()
         return depth
     def gpu_roll (self, img, shift, axis):  #Same input signature as np.roll to ensure replacability
         #Note for future Gia: Not much speed improvement I'm afraid, but there was... or so I believe
         return torch.roll (torch.from_numpy(img).to(torch.device('cuda'), non_blocking=True), shifts=shift, dims=axis).cpu().numpy()
     
-    def gpu_roll_with_offset (self, img, offset_list, axis):
+    def gpu_roll_with_offset (self, img_gpu, offset_list, axis):
         result = []
-        img_gpu = torch.from_numpy(img).to(torch.device('cuda'), non_blocking=True)
         for i in offset_list:
             result.append (torch.roll (img_gpu, shifts=i, dims=axis)[None, :]) #.unsqueeze(0)
         result = torch.cat(result, dim=0)  # stack on GPU
-        return result, img_gpu #return result.cpu().numpy(), img_gpu
+        return result #return result.cpu().numpy(), img_gpu
     
     def left_side_sbs(self, raw_img, inference_queue, result_queue):
         #Reuse old depth if frame is not much different shenanigan.
-        depth = self.get_depth(raw_img, inference_queue, result_queue)
+        img_gpu = torch.from_numpy(raw_img).to(torch.device('cuda'), non_blocking=True)
+        depth = self.get_depth(raw_img, inference_queue, result_queue) #Bottleneck here
 
         #Initialization
         #Normal image fill
         #result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
         #result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
-        shaded_result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
+        #shaded_result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
         #Edge blurring DOES NOT CONSUME CPU TIME MUCH.
-        edge_fill_positive = np.zeros(raw_img.shape[:2], dtype=bool)
-        edge_fill_negative = np.zeros(raw_img.shape[:2], dtype=bool)
+        #edge_fill_positive = np.zeros(raw_img.shape[:2], dtype=bool)
+        #edge_fill_negative = np.zeros(raw_img.shape[:2], dtype=bool)
         #Kernel init
         kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
         
@@ -199,8 +203,8 @@ class LeftSBSProcessor:
         #        t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
         #        print_flush (t,' ',round(t),' ',int(t))
 
-        offset_img, img_gpu = self.gpu_roll_with_offset(raw_img, offset_list = offset_x_list, axis=1)
-        depth_gpu = torch.from_numpy(depth).to(torch.device('cuda'), non_blocking=True)
+        offset_img = self.gpu_roll_with_offset(img_gpu, offset_list = offset_x_list, axis=1)
+        depth_gpu = depth #torch.from_numpy(depth).to(torch.device('cuda'), non_blocking=True)
         edge_fill_positive = torch.zeros(raw_img.shape[:2], dtype=torch.bool).to(torch.device('cuda'), non_blocking=True)
         edge_fill_negative = torch.zeros(raw_img.shape[:2], dtype=torch.bool).to(torch.device('cuda'), non_blocking=True)
         
@@ -393,6 +397,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 
                 last_i = i+1
                 FrameList = []
+                torch.cuda.empty_cache()
                 gc.collect()
         print_flush ("Worker ending")
         dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
@@ -411,6 +416,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
         print_flush(f"[ERROR] {begin} failed at frame {i}")
         print_flush(traceback.format_exc())
         #raise e
+        dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
         random_sleep ((9,10), "Worker error, sleep then exit")
         return 0
 def we_ballin ():
