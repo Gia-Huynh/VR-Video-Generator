@@ -102,7 +102,9 @@ def inference_worker (in_queue, out_queue, DEVICE):
         img = task[0]
         with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
             result = model.infer_image_gpu(img)
-        out_queue.put(result)
+        #t = torch.clone(result).to(torch.device('cpu'), non_blocking=True)
+        #t = torch.zeros (result.shape, dtype=torch.float32).to(torch.device('cuda'), non_blocking=True)
+        out_queue.put(torch.clone(result)) #Need .clone() to prevent pass by reference
       
 class LeftSBSProcessor:
     def __init__(self):
@@ -142,15 +144,19 @@ class LeftSBSProcessor:
             offset_x_list.append (offset_x)
         return cutoff_list, offset_range, step_list, limit_step, offset_x_list
     def get_depth (self, raw_img, inference_queue, result_queue):
-        if (self.last_frame is not None) and (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) and (self.last_depth_flag == True):
-            depth = self.depth_list[-1]
-            return depth
-        if (self.last_frame is None):
-            inference_queue.put((raw_img,))
+
+        #Note: cai nay no conflict voi cai "hack" putting frames vao gpu cua minh
+        #if (self.last_frame is not None) and
+        #    (np.sum (cv2.absdiff (cv2.stackBlur(raw_img, (3, 3)), cv2.stackBlur(self.last_frame, (3, 3)))) < 2000000) and #np.sum... is not size-invariant
+        #    (self.last_depth_flag == True):
+        #    depth = self.depth_list[-1]
+        #    return depth
+        #if (self.last_frame is None):
+        #    inference_queue.put((raw_img,))
         #add raw_img to gpu queue and get result
         self.last_frame = raw_img.copy()
-        depth = result_queue.get()      # I CHEAT HERE
         inference_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
+        depth = result_queue.get()     # I CHEAT HERE
 
         #Intialization
         while (len(self.depth_list)<self.depth_dampening_count):
@@ -164,7 +170,7 @@ class LeftSBSProcessor:
             depth =  depth + self.depth_list[i]*t
             t = t*self.depth_dampening_ratio
         self.depth_list.pop(0)
-        self.depth_list.append (depth) #.clone()
+        self.depth_list.append (depth) #.clone() here does not help against pass by reference
         #DEBUG ONLY
         #self.depth_list[-1] = depth.clone()
         return depth
@@ -238,36 +244,6 @@ class LeftSBSProcessor:
             result_img[rows, cols, :] = offset_img[idx][rows, cols, :]# masked_img [rows, cols, :]
             result_blank_mask |= bin_mask
 
-        #original
-        """result_img = result_img.to(torch.device('cpu')).detach().numpy()
-        edge_fill_positive = edge_fill_positive.to(torch.device('cpu'))
-        edge_fill_negative = edge_fill_negative.to(torch.device('cpu'))
-        result_zero_mask = (~result_blank_mask).to(torch.device('cpu')).detach().numpy()  # inverted boolean mask where no pixel was filled
-        del offset_img
-        del depth_gpu
-        torch.cuda.empty_cache()
-        #kernel_expand = np.ones ((max(kernel_size, 1),  max(kernel_size, 1)))
-        #result_zero_mask = cv2.morphologyEx(result_zero_mask.astype(np.uint8), cv2.MORPH_CLOSE, kernel_expand) #BETTER
-        #Fill result_img with blurred value from zero_mask
-        #result_zero_mask = result_zero_mask.astype(bool)
-        
-        result_img[result_zero_mask] = (cv2.stackBlur
-                                                (raw_img
-                                            #,(limit_step*2 + 3, round(limit_step/8)*2 + 1)
-                                                ,(limit_step*2 + 3, limit_step*2 + 1)
-                                        ))[result_zero_mask] #Help fill black gap
-        
-        result_img[result_zero_mask] = (cv2.stackBlur
-                                                (result_img
-                                                ,(limit_step + (limit_step%2==0), round(limit_step/8)*2 + 1)
-                                        ))[result_zero_mask] #Help smoothen out the transition
-        result_img[edge_fill_positive] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_positive]
-        result_img[edge_fill_negative] = cv2.stackBlur (result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))[edge_fill_negative]
-        result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
-        self.print_once = True
-        return cv2.hconcat([result_img, raw_img])
-        """
-        #gpu version:
         result_zero_mask = (~result_blank_mask).to (torch.float32)
         kernel_expand = torch.ones ((max(kernel_size, 1),  max(kernel_size, 1)), dtype=torch.float32, device=bin_mask.device).unsqueeze(0).unsqueeze(0)
         result_zero_mask =  torch.nn.functional.conv2d(
@@ -422,7 +398,7 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
 def we_ballin ():
     step = math.ceil((min(end_frame, video_length) - start_frame)/Num_Workers)
     frame_indices = range(start_frame, min(end_frame, video_length), step)
-    
+    #m = mp.Manager()
     inference_queue_list = [Queue() for i in range (0, Num_GPU_Workers)]
     result_queue_list = [Queue() for i in range (0, Num_GPU_Workers)]
     inference_workers = [Process(target=inference_worker, args=(inference_queue_list[i], result_queue_list[i], torch.device('cuda', (i%num_gpu))))
