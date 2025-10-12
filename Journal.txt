@@ -31,3 +31,5 @@ Anyway, bước ăn time nhất hiện tại (1 tỷ 2) là torch.nonzero, mình
 	(nguyên nhân do gán out= thì torch nó chép đại vào mà không quan tâm biến có đủ bộ nhớ chứa khum)
 
 Tối 11/10: Đã chính thức chạm được ngưỡng 2x thời gian, maria nagai 86 phút giờ chạy trong 216 phút (with temporal dampening of course).
+Sáng 12/10: Tình hình là mấy thằng fill edge ở sau khúc loop nó vừa aggresive ở cái chọn pixel nhưng lại un-aggresive ở cái blur intensity, nên giờ giảm edge_fill conv2d lại, giảm kernel_size lại, và tăng sigma lên
+REMOVE Edge fill luôn, vì giờ chạy nhanh quá nên offset_list mình không cần để step=2 nữa, nên không cần compromise
