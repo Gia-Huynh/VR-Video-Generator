@@ -15,6 +15,7 @@ import subprocess
 import multiprocessing as mp
 from multiprocessing import shared_memory
 from multiprocessing import Process, Queue, set_start_method
+import queue
 #Support Functions
 from SupportFunction import get_length, get_cutoff, get_ffmpeg_config, load_model, load_and_set_video, redirrect_stdout, print_flush, dump_line_profile_to_csv, remove_all_file, random_sleep
 import SupportFunction as SpF
@@ -85,7 +86,7 @@ video_length, ffmpeg_config = SpF.get_ffmpeg_config(VideoDir, ffmpeg_device)
 # Initialize logging
 #logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
 
-def inference_worker (in_queue, out_queue, DEVICE):
+def inference_worker (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
     redirrect_stdout(DebugDir + f"inference_worker_{os.getpid()}.txt")
     print_flush (encoder, encoder_path, DEVICE)
     print_flush ("Torch model loading into device name: ", torch.cuda.get_device_name(DEVICE))
@@ -96,34 +97,47 @@ def inference_worker (in_queue, out_queue, DEVICE):
     print_flush ("Model loaded")
     
     while True:
-        task = in_queue.get()
+        queue_idx = notify_queue_list.get()
+        if queue_idx is None:
+            break
+        task = in_queue_list[queue_idx[0]].get()
         if task is None:
             break
         img = task[0]
         with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
             result = model.infer_image_gpu(img)
-        #t = torch.clone(result).to(torch.device('cpu'), non_blocking=True)
-        #t = torch.zeros (result.shape, dtype=torch.float32).to(torch.device('cuda'), non_blocking=True)
-        out_queue.put(torch.clone(result)) #Need .clone() to prevent pass by reference
+        out_queue_list[queue_idx[0]].put(result)
       
 class LeftSBSProcessor:
-    def __init__(self):
-        self.depth_dampening_count = 3 #fourth one is only 0.04125
-        self.depth_dampening_ratio = 0.5
-        self.depth_dampening_initial_value = 0.33
+    def __init__(self, gpu_notify_queue, gpu_notify_worker_idx):
+
+        #gpu_woker_notification
+        self.gpu_notify_queue = gpu_notify_queue
+        self.gpu_notify_worker_idx = gpu_notify_worker_idx
+
+        #Depth spatial smoothing related variable
         self.depth_list = []
-        
+        self.depth_dampening_count = 2 #fourth one is only 0.04125
+        self.depth_dampening_ratio = 0.4
+        self.depth_dampening_initial_value = 0.33
         t = self.depth_dampening_initial_value
         t_accumulate_sum = 0
         for i in range (self.depth_dampening_count):
             t_accumulate_sum = t_accumulate_sum + t
             t = t*self.depth_dampening_ratio
         self.depth_dampening_original_ratio = 1 - t_accumulate_sum
-            
+
+        #Persistent variable
         self.last_depth_flag = True
         self.last_depth = None
         self.last_frame = None
         self.print_once = False
+
+        #huge memory tensor, keeping it to reuse later.
+        self.gay_tensor_1 = None
+        self.gay_tensor_2 = None
+        
+        self.non_zero_indices = None
     def get_cutoff (self, depth):
         limit_step = math.ceil(depth.max())
         offset_range = [offset_bg * depth.shape[0], offset_fg * depth.shape[0] * limit_step/14.0]
@@ -142,8 +156,13 @@ class LeftSBSProcessor:
         for i, curr_step in zip(cutoff_list, step_list):
             offset_x = round((i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
             offset_x_list.append (offset_x)
+        #if self.print_once == False: #Debug printing
+        #    for i, curr_step in zip(cutoff_list, step_list):
+        #        t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
+        #        print_flush (t,' ',round(t),' ',int(t))
+
         return cutoff_list, offset_range, step_list, limit_step, offset_x_list
-    def get_depth (self, raw_img, inference_queue, result_queue):
+    def get_depth (self, raw_img, job_queue, result_queue):
 
         #Note: cai nay no conflict voi cai "hack" putting frames vao gpu cua minh
         #if (self.last_frame is not None) and
@@ -151,19 +170,26 @@ class LeftSBSProcessor:
         #    (self.last_depth_flag == True):
         #    depth = self.depth_list[-1]
         #    return depth
-        #if (self.last_frame is None):
-        #    inference_queue.put((raw_img,))
+        if (self.last_frame is None):
+            job_queue.put((raw_img,))
+            self.gpu_notify_queue.put((self.gpu_notify_worker_idx,))
+        
         #add raw_img to gpu queue and get result
-        self.last_frame = raw_img.copy()
-        inference_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
+        #self.last_frame = raw_img.copy()
         depth = result_queue.get()     # I CHEAT HERE
+        if (self.last_frame is None):
+            print ("DEPTH DEVICE: ", depth.device)
+        self.last_frame = 1
+        job_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
+        self.gpu_notify_queue.put((self.gpu_notify_worker_idx,))
 
         #Intialization
         while (len(self.depth_list)<self.depth_dampening_count):
             self.depth_list.append(depth)  #.clone()
         
-        t = self.depth_dampening_initial_value
-        depth = depth*self.depth_dampening_original_ratio
+        """t = self.depth_dampening_initial_value
+        #depth = depth*self.depth_dampening_original_ratio
+        depth*=self.depth_dampening_original_ratio
         if (len(self.depth_list) > self.depth_dampening_count):
             print_flush ("EXCUSE WE WTF IS THIS DEPTH LIST LENGTH?", len(self.depth_list))
         for i in range (len(self.depth_list)-1, -1, -1):
@@ -171,6 +197,7 @@ class LeftSBSProcessor:
             t = t*self.depth_dampening_ratio
         self.depth_list.pop(0)
         self.depth_list.append (depth) #.clone() here does not help against pass by reference
+        """
         #DEBUG ONLY
         #self.depth_list[-1] = depth.clone()
         return depth
@@ -185,63 +212,57 @@ class LeftSBSProcessor:
         result = torch.cat(result, dim=0)  # stack on GPU
         return result #return result.cpu().numpy(), img_gpu
     
-    def left_side_sbs(self, raw_img, inference_queue, result_queue):
+    def left_side_sbs(self, raw_img, job_queue, result_queue):
         #Reuse old depth if frame is not much different shenanigan.
         img_gpu = torch.from_numpy(raw_img).to(torch.device('cuda'), non_blocking=True)
-        depth = self.get_depth(raw_img, inference_queue, result_queue) #Bottleneck here
+        depth = self.get_depth(raw_img, job_queue, result_queue) #Bottleneck here
 
         #Initialization
-        #Normal image fill
-        #result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
-        #result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
-        #shaded_result_img = np.zeros(raw_img.shape, dtype=raw_img.dtype)
-        #Edge blurring DOES NOT CONSUME CPU TIME MUCH.
-        #edge_fill_positive = np.zeros(raw_img.shape[:2], dtype=bool)
-        #edge_fill_negative = np.zeros(raw_img.shape[:2], dtype=bool)
         #Kernel init
         kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
         
         #Get cut-off and related matrix.
         cutoff_list, offset_range, step_list, limit_step, offset_x_list = self.get_cutoff(depth)
         
-        #if self.print_once == False: #Debug printing
-        #    for i, curr_step in zip(cutoff_list, step_list):
-        #        t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
-        #        print_flush (t,' ',round(t),' ',int(t))
-
         offset_img = self.gpu_roll_with_offset(img_gpu, offset_list = offset_x_list, axis=1)
-        depth_gpu = depth #torch.from_numpy(depth).to(torch.device('cuda'), non_blocking=True)
-        edge_fill_positive = torch.zeros(raw_img.shape[:2], dtype=torch.bool).to(torch.device('cuda'), non_blocking=True)
-        edge_fill_negative = torch.zeros(raw_img.shape[:2], dtype=torch.bool).to(torch.device('cuda'), non_blocking=True)
+
+        edge_fill_positive = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))#.to(torch.device('cuda'), non_blocking=True)
+        #edge_fill_negative = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))#.to(torch.device('cuda'), non_blocking=True)
         
-        result_img = torch.zeros(raw_img.shape, dtype=torch.uint8).to(torch.device('cuda'), non_blocking=True)
-        result_blank_mask = torch.zeros(raw_img.shape[:2], dtype=torch.bool).to(torch.device('cuda'), non_blocking=True)
+        result_img = torch.zeros(raw_img.shape, dtype=torch.uint8, device = torch.device('cuda'))#.to(torch.device('cuda'), non_blocking=True)
+        result_blank_mask = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))#.to(torch.device('cuda'), non_blocking=True)
         for idx, i, curr_step in zip(range(len(cutoff_list)), cutoff_list, step_list):
-            bin_mask = (((i - 0.05 * curr_step) <= depth_gpu) & (depth_gpu < i + 1.05 * curr_step)).to(torch.bool)
+            bin_mask = (((i - 0.05 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).to(torch.bool)
             
             offset_x = offset_x_list[idx]
             if offset_x != 0:
                 bin_mask = torch.roll(bin_mask, shifts=offset_x, dims=1).to(torch.bool)
-            #masked_mask = bin_mask
             
             if offset_x > 0:
-                kernel = torch.tensor([[-2, 1, 1]], dtype=torch.float32, device=bin_mask.device)
-                # shape [out_channels=1, in_channels=1, kH=1, kW=3]
-                kernel = kernel.unsqueeze(0).unsqueeze(0)
+                if self.gay_tensor_1 is None:
+                    self.gay_tensor_1 =torch.tensor([[[[-2, 1, 1]]]], dtype=torch.float32, device=bin_mask.device)
+                kernel = self.gay_tensor_1
+                #kernel = torch.tensor([[-2, 1, 1]], dtype=torch.float32, device=bin_mask.device)
+                #kernel = kernel.unsqueeze(0).unsqueeze(0)
                 edge_fill_positive |= (
                     torch.nn.functional.conv2d(bin_mask.float().unsqueeze(0).unsqueeze(0), kernel, padding='same')[0, 0] > 0
                 )
 
             elif offset_x < 0:
-                kernel = torch.tensor([[1, 1, -2]], dtype=torch.float32, device=bin_mask.device)
-                kernel = kernel.unsqueeze(0).unsqueeze(0)
-                edge_fill_negative |= (
+                if self.gay_tensor_2 is None:
+                    self.gay_tensor_2 =torch.tensor([[[[1, 1, -2]]]], dtype=torch.float32, device=bin_mask.device)
+                kernel = self.gay_tensor_2
+                #kernel = torch.tensor([[1, 1, -2]], dtype=torch.float32, device=bin_mask.device)
+                #kernel = kernel.unsqueeze(0).unsqueeze(0)
+                #edge_fill_negative |= (
+                edge_fill_positive |= (
                     torch.nn.functional.conv2d(bin_mask.float().unsqueeze(0).unsqueeze(0), kernel, padding='same')[0, 0] > 0
                 )
                 
-            #As fast as you can get here
-            rows, cols = torch.nonzero(bin_mask,as_tuple=True)
-            result_img[rows, cols, :] = offset_img[idx][rows, cols, :]# masked_img [rows, cols, :]
+            #As fast as you can get here, literally, other torch.nonzero option tested
+            self.rows, self.cols = torch.nonzero(bin_mask,as_tuple=True)
+            result_img[self.rows, self.cols, :] = offset_img[idx][self.rows, self.cols, :]# masked_img [rows, cols, :]
+
             result_blank_mask |= bin_mask
 
         result_zero_mask = (~result_blank_mask).to (torch.float32)
@@ -272,15 +293,15 @@ class LeftSBSProcessor:
         #edge_fill_positive = cv2.dilate(edge_fill_positive.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
         t = gaussian_blur_image(result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))
         result_img[edge_fill_positive] = t [edge_fill_positive]
-        result_img[edge_fill_negative] = t [edge_fill_negative]
+        #result_img[edge_fill_negative] = t [edge_fill_negative]
 
         result_img[:, 0:round(offset_x/3), :] = img_gpu[:, 0:round(offset_x/3), :]
         self.print_once = True
         return torch.concat([result_img, img_gpu], dim=1).detach().cpu().numpy()#cv2.hconcat([result_img, raw_img])
 
-    def left_side_sbs_cpu(self, raw_img, inference_queue, result_queue):
+    def left_side_sbs_cpu(self, raw_img, job_queue, result_queue):
         #Reuse old depth if frame is not much different shenanigan.
-        depth = self.get_depth(raw_img, inference_queue, result_queue)
+        depth = self.get_depth(raw_img, job_queue, result_queue)
         #Initialization
         #Normal image fill
         result_blank_mask = np.zeros(raw_img.shape[:2], dtype=bool)
@@ -328,12 +349,15 @@ class LeftSBSProcessor:
         result_img[:, 0:round(offset_x/3), :] = raw_img[:, 0:round(offset_x/3), :]
         self.print_once = True
         return cv2.hconcat([result_img, raw_img])
-def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):
+def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):
     #Silence all output of child process
     redirrect_stdout(DebugDir + str (begin//(end-begin))+'_' + str(begin)+'.txt')
+
+    gpu_notify_queue = gpu_notify_list[0]
+    gpu_notify_worker_idx = gpu_notify_list[1]
     cap, fps, video_length, width, height = load_and_set_video (file_path, begin)
     total_step = (min (end, video_length) - begin)
-    sbsObj = LeftSBSProcessor()
+    sbsObj = LeftSBSProcessor(gpu_notify_queue, gpu_notify_worker_idx)
     
     print_flush ("Worker begin from ",begin," to ",end, "\n","video length: ", get_length (file_path), "frame count: ",video_length, ", begin and end: ",begin, end)  
     begin_time = time.time()
@@ -342,15 +366,16 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
     ffmpeg_proc = None
     last_i = begin
     FrameList = []
-    profiler = LineProfiler()
-    profiler.add_function(sbsObj.get_depth)
-    profiler.add_function(sbsObj.left_side_sbs)
-    profiler.enable()        
+    #profiler = LineProfiler()
+    #profiler.add_function(sbsObj.get_depth)
+    #profiler.add_function(sbsObj.left_side_sbs)
+    #profiler.enable()        
     try:
         for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
             if (raw_img is not None):
-                FrameList.append(sbsObj.left_side_sbs(raw_img[:,:,[2,1,0]], inference_queue, result_queue))
+                FrameList.append(sbsObj.left_side_sbs(raw_img[:,:,[2,1,0]], job_queue, result_queue))
+                torch.cuda.empty_cache()
             else:
                 FrameList.append(np.zeros((height, 2*width, 3), dtype = np.uint8))
                 print_flush ("Frame read error at i = ",i,", adding black frame to compensate.")
@@ -373,7 +398,6 @@ def nibba_woka(begin, end, inference_queue, result_queue, max_frame_count = Max_
                 
                 last_i = i+1
                 FrameList = []
-                torch.cuda.empty_cache()
                 gc.collect()
         print_flush ("Worker ending")
         dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
@@ -399,27 +423,42 @@ def we_ballin ():
     step = math.ceil((min(end_frame, video_length) - start_frame)/Num_Workers)
     frame_indices = range(start_frame, min(end_frame, video_length), step)
     #m = mp.Manager()
-    inference_queue_list = [Queue() for i in range (0, Num_GPU_Workers)]
-    result_queue_list = [Queue() for i in range (0, Num_GPU_Workers)]
-    inference_workers = [Process(target=inference_worker, args=(inference_queue_list[i], result_queue_list[i], torch.device('cuda', (i%num_gpu))))
-                             for i in range (0, Num_GPU_Workers)]
-    
+    notify_queue_list = [Queue() for gpu_worker_number in range (0, Num_GPU_Workers)] #To notify gpu worker to check for new queue item
+    job_queue_list = [Queue() for i in range (0, Num_Workers)]
+    result_queue_list = [Queue() for i in range (0, Num_Workers)]
+
+    #Create and assign input/output queue to gpu_worker
+    inference_job_queue_list = [[] for i in range (Num_GPU_Workers)]
+    inference_result_queue_list = [[] for i in range (Num_GPU_Workers)]
+    for i in range (0, Num_Workers):
+        inference_job_queue_list[i%Num_GPU_Workers].append (job_queue_list[i])
+        inference_result_queue_list[i%Num_GPU_Workers].append (result_queue_list[i])
+
+    #Initialize Gpu workers and start them
+    inference_workers = [Process(target=inference_worker, args=(inference_job_queue_list[i], inference_result_queue_list[i], notify_queue_list[i], torch.device('cuda', (i%num_gpu))))
+                             for i in range (0, Num_GPU_Workers)]    
     for j in range (0, Num_GPU_Workers):
         inference_workers[j].start()
         random_sleep ((0,0.5), "staggered model load")
 
+    #Initialize SBS workers and start them
     workers = []
     for idx, i in enumerate(frame_indices):
-        inference_workers_idx = idx % Num_GPU_Workers
-        worker = Process(target = nibba_woka, args = (i, min(end_frame, i + step), inference_queue_list[inference_workers_idx], result_queue_list[inference_workers_idx]))
-        print ("idx: ", idx,", GPU Worker: ",inference_workers_idx, ", worker: ", worker)
+        gpu_worker_number = idx % Num_GPU_Workers
+        within_gpu_worker_inference_idx = int(idx/Num_GPU_Workers)
+        worker = Process(target = nibba_woka, args = (i, min(end_frame, i + step), job_queue_list[idx], result_queue_list[idx], [notify_queue_list[gpu_worker_number], within_gpu_worker_inference_idx]))
+        print ("idx: ", idx,", assigned to gpu_worker: ", gpu_worker_number, ", worker: ", worker)
         random_sleep ((0, 1), "Staggered worker start") #There is a reason for this, Don't mess with it
         worker.start()
         workers.append(worker)
+
+    #Wait for them worker to finish
     for w in workers:
         w.join()
-    for inference_queue in inference_queue_list:
-        inference_queue.put(None)        
+    for job_queue in job_queue_list:
+        job_queue.put(None) #Signal inference worker to stop.
+    for notify_queue in notify_queue_list:
+        notify_queue.put(None) #Signal inference worker to stop.
     for w in inference_workers:
         w.join()
     

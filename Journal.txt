@@ -22,3 +22,12 @@ nên modify dpt.py tạo thêm hàm infer_image_gpu để đỡ dịch file.
 TỐC ĐỘ NHANH VÃI LỒN ÚI CHỜI ƠI.
 
 ĐỜ CỜ MỜ Queue có vấn đề, item bỏ vào khác item rút ra, chắc do mình khôn lỏi, thử đổi lại làm chính quy xem thế nào.
+Làm chính quy xong khá ổn, optimize cái edge_fill kernel để khỏi tạo lại, rồi làm queue riêng cho từng worker, thêm notify queue cho gpu_worker nữa.
+Từ 5 tỉ xuống 2 tỉ 9.
+
+Bước tiếp theo: Tạm comment cái temporal dampening xem có nhanh hơn nữa không, mục tiêu là 2x.
+Anyway, bước ăn time nhất hiện tại (1 tỷ 2) là torch.nonzero, mình đang để output nó vào biến sẵn để giảm thời gian khởi tạo memory, nhưng...
+    torch.nonzero(bin_mask, as_tuple=False, out = self.non_zero_indices) RuntimeError: CUDA error: device-side assert triggered
+	(nguyên nhân do gán out= thì torch nó chép đại vào mà không quan tâm biến có đủ bộ nhớ chứa khum)
+
+Tối 11/10: Đã chính thức chạm được ngưỡng 2x thời gian, maria nagai 86 phút giờ chạy trong 216 phút (with temporal dampening of course).

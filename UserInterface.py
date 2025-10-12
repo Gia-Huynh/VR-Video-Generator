@@ -12,7 +12,7 @@ args = {
     "offset_bg": -0.05,
     "Num_Workers": 6,
     "num_gpu": 1,
-    "Num_GPU_Workers": 1,
+    "Num_GPU_Workers": 2,
     "Max_Frame_Count": 15,
     "start_frame": 0,
     "end_frame": 999999999999999,
