@@ -83,7 +83,7 @@ video_length, ffmpeg_config = SpF.get_ffmpeg_config(VideoDir, ffmpeg_device)
 # Initialize logging
 #logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
 
-def inference_worker (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
+def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
     redirrect_stdout(DebugDir + f"inference_worker_{os.getpid()}.txt")
     print_flush (encoder, encoder_path, DEVICE)
     print_flush ("Torch model loading into device name: ", torch.cuda.get_device_name(DEVICE))
@@ -91,8 +91,7 @@ def inference_worker (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
     print_flush ("Model loaded, trying to infer an image...")
     model.infer_image (np.zeros((1080, 1920, 3), dtype = np.uint8))
     torch.cuda.empty_cache()
-    print_flush ("Model loaded")
-    
+    print_flush ("Model loaded")    
     while True:
         queue_idx = notify_queue_list.get()
         if queue_idx is None:
@@ -105,6 +104,32 @@ def inference_worker (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
             result = model.infer_image_gpu(img)
         out_queue_list[queue_idx[0]].put(result)
       
+def inference_worker (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
+    """redirrect_stdout(DebugDir + f"inference_worker_{os.getpid()}.txt")
+    print_flush (encoder, encoder_path, DEVICE)
+    print_flush ("Torch model loading into device name: ", torch.cuda.get_device_name(DEVICE))
+    model = load_model(encoder, encoder_path, DEVICE)
+    print_flush ("Model loaded, trying to infer an image...")
+    model.infer_image (np.zeros((1080, 1920, 3), dtype = np.uint8))
+    torch.cuda.empty_cache()
+    print_flush ("Model loaded")"""
+    
+    #profiler = LineProfiler()
+    #profiler.add_function(inference_worker_backup)
+    #profiler.enable()
+    inference_worker_backup(in_queue_list, out_queue_list, notify_queue_list, DEVICE)
+    #dump_line_profile_to_csv(profiler, filename=DebugDir + f"inference_worker_{os.getpid()}_Profiler.csv")
+    """while True:
+        queue_idx = notify_queue_list.get()
+        if queue_idx is None:
+            break
+        task = in_queue_list[queue_idx[0]].get()
+        if task is None:
+            break
+        img = task[0]
+        with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
+            result = model.infer_image_gpu(img)
+        out_queue_list[queue_idx[0]].put(result)"""
 class LeftSBSProcessor:
     def __init__(self, gpu_notify_queue, gpu_notify_worker_idx, debug_config = [None]):
         self.debug_filePrefix = debug_config [0]
@@ -114,9 +139,9 @@ class LeftSBSProcessor:
 
         #Depth spatial smoothing related variable
         self.depth_list = []
-        self.depth_dampening_count = 2 #fourth one is only 0.04125
-        self.depth_dampening_ratio = 0.4
-        self.depth_dampening_initial_value = 0.33
+        self.depth_dampening_count = 2
+        self.depth_dampening_ratio = 0.5
+        self.depth_dampening_initial_value = 0.3
         t = self.depth_dampening_initial_value
         t_accumulate_sum = 0
         for i in range (self.depth_dampening_count):
@@ -138,7 +163,8 @@ class LeftSBSProcessor:
         self.non_zero_indices = None
     def get_cutoff (self, depth):
         limit_step = math.ceil(depth.max())
-        offset_range = [offset_bg * depth.shape[0], offset_fg * depth.shape[0] * limit_step/14.0]
+        offset_range = [offset_bg * depth.shape[0] * limit_step/16.0, #Divided by 14 to normalize
+                        offset_fg * depth.shape[0] * limit_step/14.0]
         cutoff_list = []
         for i in range (int(offset_range[0]), 0, 1): #(...,0, 2) Cai nay giup save 20% time, 550 phut xuong 450 phut
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
@@ -170,23 +196,21 @@ class LeftSBSProcessor:
         #    depth = self.depth_list[-1]
         #    return depth
         if (self.last_frame is None):
-            job_queue.put((raw_img,))
             self.gpu_notify_queue.put((self.gpu_notify_worker_idx,))
+            job_queue.put((raw_img,))
         
         #add raw_img to gpu queue and get result
         #self.last_frame = raw_img.copy()
         depth = result_queue.get()     # I CHEAT HERE
-        if (self.last_frame is None):
-            print ("DEPTH DEVICE: ", depth.device)
         self.last_frame = 1
-        job_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
         self.gpu_notify_queue.put((self.gpu_notify_worker_idx,))
+        job_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
 
+        """
         #Intialization
         while (len(self.depth_list)<self.depth_dampening_count):
             self.depth_list.append(depth)  #.clone()
-        
-        """t = self.depth_dampening_initial_value
+        t = self.depth_dampening_initial_value
         #depth = depth*self.depth_dampening_original_ratio
         depth*=self.depth_dampening_original_ratio
         if (len(self.depth_list) > self.depth_dampening_count):
@@ -195,10 +219,9 @@ class LeftSBSProcessor:
             depth =  depth + self.depth_list[i]*t
             t = t*self.depth_dampening_ratio
         self.depth_list.pop(0)
-        self.depth_list.append (depth) #.clone() here does not help against pass by reference
+        self.depth_list.append (depth)
+        #self.depth_list[-1] = depth.clone() #DEBUG ONLY
         """
-        #DEBUG ONLY
-        #self.depth_list[-1] = depth.clone()
         return depth
     def gpu_roll (self, img, shift, axis):  #Same input signature as np.roll to ensure replacability
         #Note for future Gia: Not much speed improvement I'm afraid, but there was... or so I believe
@@ -255,7 +278,7 @@ class LeftSBSProcessor:
             result_img[self.rows, self.cols, :] = offset_img[idx][self.rows, self.cols, :]# masked_img [rows, cols, :]
 
             result_blank_mask |= bin_mask
-        cv2.imwrite(self.debug_filePrefix + "_0_InitialResultImg.png", torch.clone(result_img).cpu().numpy()[:,:,[2,1,0]])
+        #cv2.imwrite(self.debug_filePrefix + "_0_InitialResultImg.png", torch.clone(result_img).cpu().numpy()[:,:,[2,1,0]])
         result_zero_mask = (~result_blank_mask).to (torch.float32)
         kernel_expand = torch.ones ((max(kernel_size, 1),  max(kernel_size, 1)), dtype=torch.float32, device=bin_mask.device).unsqueeze(0).unsqueeze(0)
         """result_zero_mask =  torch.nn.functional.conv2d(
@@ -270,37 +293,21 @@ class LeftSBSProcessor:
         
         #Fill result_img with blurred value from zero_mask
         result_zero_mask = result_zero_mask.to(torch.bool)
-        for i in range (kernel_size*2 + 3):
-            for j in range (kernel_size*2 + 1):
-                result_img[i,j,0] = 255
-                result_img[i,j,1] = 0
-                result_img[i,j,2] = 0
         """result_img[result_zero_mask] = (gaussian_blur(img_gpu.permute (2,0,1),
                                                       (kernel_size*2 + 3, kernel_size*2 + 1),
                                                       #(limit_step*2 + 3, limit_step*2 + 1),
                                                       sigma = self.sigmaboi
                                         )).permute (1,2,0)[result_zero_mask] #Help fill black gap"""
-        result_img[result_zero_mask] = offset_img[int(len(offset_img)*3/5)][result_zero_mask]
-        cv2.imwrite(self.debug_filePrefix + "_1_Fill_result_zero_mask.png", torch.clone(result_img).cpu().numpy()[:,:,[2,1,0]])
-        
+        result_img[result_zero_mask] = offset_img[int(len(offset_img)*3/5)][result_zero_mask]        
         result_img[result_zero_mask] = (gaussian_blur(result_img.permute (2,0,1),
                                                       (kernel_size*2 + 3, kernel_size*2 + 1),
                                                       #(limit_step + (limit_step%2==0), round(limit_step/4)*2 + 1),
                                                       sigma = self.sigmaboi
                                         )).permute (1,2,0)[result_zero_mask] #Help smoothen out the transition
-
-        cv2.imwrite(self.debug_filePrefix + "_2_Fill_Smoothen_result_zero_mask.png", torch.clone(result_img).cpu().numpy()[:,:,[2,1,0]])
         #Is this line necessary?
         # (Deleted, cv2.dilate edge_fill_positive)
         #t = gaussian_blur_image(result_img.permute (2,0,1), (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)),sigma = self.sigmaboi).permute (1,2,0)
-        #result_img[edge_fill] = t [edge_fill]
-                    
-        cv2.imwrite(self.debug_filePrefix + "_3_Edge_fill.png", torch.clone(result_img).cpu().numpy()[:,:,[2,1,0]])
-
-        cv2.imwrite(self.debug_filePrefix + "_4_Only_Edge.png", torch.clone(edge_fill*254).to(torch.uint8).cpu().numpy()[:,:,None])
-        cv2.imwrite(self.debug_filePrefix + "_4_Only_result_zero_mask.png", torch.clone(result_zero_mask*254).to(torch.uint8).cpu().numpy()[:,:,None])
-        cv2.imwrite(self.debug_filePrefix + "_4_Edge_OR_Result_Zero_Mask.png", torch.clone((result_zero_mask | edge_fill)*254).to(torch.uint8).cpu().numpy()[:,:,None])
-
+        #result_img[edge_fill] = t [edge_fill]                    
         result_img[:, 0:round(offset_x/3), :] = img_gpu[:, 0:round(offset_x/3), :]
         return torch.concat([result_img, img_gpu], dim=1).detach().cpu().numpy()#cv2.hconcat([result_img, raw_img])
 
@@ -335,6 +342,10 @@ def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_c
             else:
                 FrameList.append(np.zeros((height, 2*width, 3), dtype = np.uint8))
                 print_flush ("Frame read error at i = ",i,", adding black frame to compensate.")
+            if (i == begin): #Pre-run once to ensure it does not fucked up.
+                cv2.imwrite(DebugDir + str (begin//(end-begin))+'_' + str(begin)+"FIRST_FRAME.png", sbsObj.left_side_sbs(raw_img[:,:,[2,1,0]], job_queue, result_queue)[:,:,[2,1,0]])
+            if (i == min (end, video_length)-1): #Pre-run once to ensure it does not fucked up.
+                cv2.imwrite(DebugDir + str (begin//(end-begin))+'_' + str(begin)+"LAST_FRAME.png", sbsObj.left_side_sbs(raw_img[:,:,[2,1,0]], job_queue, result_queue)[:,:,[2,1,0]])
             if (len (FrameList) == max_frame_count) or (i == (min (end-1, video_length-1))):
                 step_taken = i - begin
                 #print_flush ("Writing file ", i, "with length (in frames): ", len(FrameList))

@@ -10,7 +10,7 @@ args = {
     "encoder_path": "depth_anything_v2/checkpoints/depth_anything_v2_vits.pth",
     "offset_fg": 0.025,
     "offset_bg": -0.05,
-    "Num_Workers": 6,
+    "Num_Workers": 8,
     "num_gpu": 1,
     "Num_GPU_Workers": 2,
     "Max_Frame_Count": 15,
