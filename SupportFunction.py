@@ -173,6 +173,9 @@ def load_and_set_video (file_path, begin): #Function used only in nibba_woka
     height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
     cap.set(cv2.CAP_PROP_POS_FRAMES, begin) # set frame position
     return cap, fps, video_length, width, height
+
+#Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
+#Options in [input options] are applied to the input. Options in [output options] are applied to the output.
 def get_ffmpeg_config (VideoDir, ffmpeg_device = 'cpu'):
     global video_length
     _, fps, video_length, width, height = load_and_set_video (VideoDir, 0)

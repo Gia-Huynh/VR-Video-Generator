@@ -78,9 +78,6 @@ if (offset_bg >= 0) and (offset_bg * offset_fg > 0):
 
 #if smaller than video length, will be clipped off
 video_length = 0
-    
-#Yes, order of inputs is important: ffmpeg [global options] [input options] -i input [output options] output.
-#Options in [input options] are applied to the input. Options in [output options] are applied to the output.
 ffmpeg_device = 'cpu'
 video_length, ffmpeg_config = SpF.get_ffmpeg_config(VideoDir, ffmpeg_device)
 # Initialize logging
@@ -142,7 +139,7 @@ class LeftSBSProcessor:
         limit_step = math.ceil(depth.max())
         offset_range = [offset_bg * depth.shape[0], offset_fg * depth.shape[0] * limit_step/14.0]
         cutoff_list = []
-        for i in range (int(offset_range[0]), -1, 1): #(...,-1, 2) Cai nay giup save 20% time, 550 phut xuong 450 phut
+        for i in range (int(offset_range[0]), 0, 1): #(...,0, 2) Cai nay giup save 20% time, 550 phut xuong 450 phut
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         cutoff_list.append ((0 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         for i in range (1, int(offset_range[1]), 1): #What's in front of you should not be coarse
@@ -160,6 +157,7 @@ class LeftSBSProcessor:
         #    for i, curr_step in zip(cutoff_list, step_list):
         #        t = (i) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
         #        print_flush (t,' ',round(t),' ',int(t))
+        #self.print_once = True
 
         return cutoff_list, offset_range, step_list, limit_step, offset_x_list
     def get_depth (self, raw_img, job_queue, result_queue):
@@ -213,24 +211,21 @@ class LeftSBSProcessor:
         return result #return result.cpu().numpy(), img_gpu
     
     def left_side_sbs(self, raw_img, job_queue, result_queue):
-        #Reuse old depth if frame is not much different shenanigan.
+
         img_gpu = torch.from_numpy(raw_img).to(torch.device('cuda'), non_blocking=True)
         depth = self.get_depth(raw_img, job_queue, result_queue) #Bottleneck here
 
         #Initialization
+        edge_fill = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))
+        result_img = torch.zeros(raw_img.shape, dtype=torch.uint8, device = torch.device('cuda'))
+        result_blank_mask = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))
         #Kernel init
         kernel_size = round(0.0047 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
         
         #Get cut-off and related matrix.
         cutoff_list, offset_range, step_list, limit_step, offset_x_list = self.get_cutoff(depth)
-        
         offset_img = self.gpu_roll_with_offset(img_gpu, offset_list = offset_x_list, axis=1)
 
-        edge_fill_positive = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))#.to(torch.device('cuda'), non_blocking=True)
-        #edge_fill_negative = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))#.to(torch.device('cuda'), non_blocking=True)
-        
-        result_img = torch.zeros(raw_img.shape, dtype=torch.uint8, device = torch.device('cuda'))#.to(torch.device('cuda'), non_blocking=True)
-        result_blank_mask = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))#.to(torch.device('cuda'), non_blocking=True)
         for idx, i, curr_step in zip(range(len(cutoff_list)), cutoff_list, step_list):
             bin_mask = (((i - 0.05 * curr_step) <= depth) & (depth < i + 1.05 * curr_step)).to(torch.bool)
             
@@ -242,9 +237,7 @@ class LeftSBSProcessor:
                 if self.gay_tensor_1 is None:
                     self.gay_tensor_1 =torch.tensor([[[[-2, 1, 1]]]], dtype=torch.float32, device=bin_mask.device)
                 kernel = self.gay_tensor_1
-                #kernel = torch.tensor([[-2, 1, 1]], dtype=torch.float32, device=bin_mask.device)
-                #kernel = kernel.unsqueeze(0).unsqueeze(0)
-                edge_fill_positive |= (
+                edge_fill |= (
                     torch.nn.functional.conv2d(bin_mask.float().unsqueeze(0).unsqueeze(0), kernel, padding='same')[0, 0] > 0
                 )
 
@@ -252,10 +245,7 @@ class LeftSBSProcessor:
                 if self.gay_tensor_2 is None:
                     self.gay_tensor_2 =torch.tensor([[[[1, 1, -2]]]], dtype=torch.float32, device=bin_mask.device)
                 kernel = self.gay_tensor_2
-                #kernel = torch.tensor([[1, 1, -2]], dtype=torch.float32, device=bin_mask.device)
-                #kernel = kernel.unsqueeze(0).unsqueeze(0)
-                #edge_fill_negative |= (
-                edge_fill_positive |= (
+                edge_fill |= (
                     torch.nn.functional.conv2d(bin_mask.float().unsqueeze(0).unsqueeze(0), kernel, padding='same')[0, 0] > 0
                 )
                 
@@ -284,19 +274,16 @@ class LeftSBSProcessor:
                                                       (limit_step*2 + 3, limit_step*2 + 1)
                                         )).permute (1,2,0)[result_zero_mask] #Help fill black gap
         
-        
         result_img[result_zero_mask] = (gaussian_blur
                                                 (result_img.permute (2,0,1)
                                                 ,(limit_step + (limit_step%2==0), round(limit_step/8)*2 + 1)
                                         )).permute (1,2,0)[result_zero_mask] #Help smoothen out the transition
         #Is this line necessary?
-        #edge_fill_positive = cv2.dilate(edge_fill_positive.view(np.uint8), np.ones((1, 3)), iterations = 1).astype(bool)
+        # (Deleted, cv2.dilate edge_fill_positive)
         t = gaussian_blur_image(result_img, (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)))
-        result_img[edge_fill_positive] = t [edge_fill_positive]
-        #result_img[edge_fill_negative] = t [edge_fill_negative]
+        result_img[edge_fill] = t [edge_fill]
 
         result_img[:, 0:round(offset_x/3), :] = img_gpu[:, 0:round(offset_x/3), :]
-        self.print_once = True
         return torch.concat([result_img, img_gpu], dim=1).detach().cpu().numpy()#cv2.hconcat([result_img, raw_img])
 
     def left_side_sbs_cpu(self, raw_img, job_queue, result_queue):
