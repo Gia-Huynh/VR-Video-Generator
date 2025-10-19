@@ -100,9 +100,10 @@ def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, D
     print_flush ("Torch model loading into device name: ", torch.cuda.get_device_name(DEVICE))
     model = load_model(encoder, encoder_path, DEVICE)
     print_flush ("Model loaded, trying to infer an image...")
-    temp_result = model.infer_image (np.zeros((1080, 1920, 3), dtype = np.uint8))
+    temp_result = model.infer_image_gpu (np.zeros((1080, 1920, 3), dtype = np.uint8))
     torch.cuda.empty_cache()
     print_flush ("Model loaded")
+    device = torch.device('cuda:0')
     
     #Initialize Result List
     result_list = [[temp_result.detach().clone()] for i in range (len(out_queue_list))]
@@ -119,10 +120,13 @@ def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, D
         if task is None:
             break
         img = task[0]
+        del result_list[queue_idx[0]][0]
         with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
-            result = model.infer_image_gpu(img)
-        out_queue_list[queue_idx[0]].put(result)
+            #result = model.infer_image_gpu(img)
+            result_list[queue_idx[0]].append(model.infer_image_gpu(img))
+        out_queue_list[queue_idx[0]].put(result_list[queue_idx[0]][0])
 
+        #Gpu memory spike issue, seems to be fixed, delete this part later
         free, total = torch.cuda.mem_get_info(device)
         mem_used_MB = (total - free) / 1024 ** 2
         if (total-free)/total > gpu_memory_cache_cleaning_percentage:
