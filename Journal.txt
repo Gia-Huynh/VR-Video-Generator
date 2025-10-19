@@ -33,3 +33,19 @@ Anyway, bước ăn time nhất hiện tại (1 tỷ 2) là torch.nonzero, mình
 Tối 11/10: Đã chính thức chạm được ngưỡng 2x thời gian, maria nagai 86 phút giờ chạy trong 216 phút (with temporal dampening of course).
 Sáng 12/10: Tình hình là mấy thằng fill edge ở sau khúc loop nó vừa aggresive ở cái chọn pixel nhưng lại un-aggresive ở cái blur intensity, nên giờ giảm edge_fill conv2d lại, giảm kernel_size lại, và tăng sigma lên
 REMOVE Edge fill luôn, vì giờ chạy nhanh quá nên offset_list mình không cần để step=2 nữa, nên không cần compromise
+
+vits chạy được 2 model + 8-10 worker.
+vitb chạy được 1 model là nó ăn gần 4gb vram rồi, 2 model chắc nổ cu.
+vitb 1 model + 6 worker = 7-8gb vram.
+chắc được max 8 worker
+nvm tràn mẹ nó ram
+
+Nua dem 15/10: Nếu để offset_fg và offset_bg lớn và với wrong config thì tự dưng bị tràn full 100% vram gpu kẹt cứng ngắc, used to happened on some night run. 
+Config dễ tràn nhất là 0.06 fg và -0.1 bg với đúng 8 worker và 2 gpu worker, nhưng ngược lại nếu giảm worker đi một chút (hình như 6-1) thì chỉ ăn có 3-4 gb vram.
+Dùng pystuck để nhảy process check thì từ 0 tới 7 đều không báo ăn vram pytorch.
+Nhưng tất cả đều bị kẹt ở     result_img[result_zero_mask] = (gaussian_blur(result_img.permute (2,0,1),    HOẶC LÀ Torch.nonzero() gì đó.
+để nhảy vào gpu process xem nó ăn cái gì,  queue_idx = notify_queue_list.get() (là gpu worker idling around waiting for mấy cái kia finish stuff).
+
+Nửa đêm 16/10: Đã sửa xong bằng cách aggresively thêm torch.empty_cache() và gc.collect() trong gpu producer process, 
+có lẽ vì reference tới result_img đã bị hủy bỏ nhưng torch không biết để empty cache mà vẫn giữ nó lại, pilling up và tràn vram.
+Giờ thì ram siêu stable. Nhung gpu usage and cpu usage low AF
