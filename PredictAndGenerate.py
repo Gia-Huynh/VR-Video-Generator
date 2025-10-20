@@ -95,16 +95,12 @@ video_length, ffmpeg_config = SpF.get_ffmpeg_config(VideoDir, ffmpeg_device)
 
 def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
     redirrect_stdout(DebugDir + f"inference_worker_{os.getpid()}.txt")
-    #print_flush ("Pystuck port: ",os.getpid())
+    device = torch.device('cuda:0')
     print_flush (encoder, encoder_path, DEVICE)
     print_flush ("Torch model loading into device name: ", torch.cuda.get_device_name(DEVICE))
     model = load_model(encoder, encoder_path, DEVICE)
-    print_flush ("Model loaded, trying to infer an image...")
     temp_result = model.infer_image_gpu (np.zeros((1080, 1920, 3), dtype = np.uint8))
-    torch.cuda.empty_cache()
     print_flush ("Model loaded")
-    device = torch.device('cuda:0')
-    
     #Initialize Result List
     result_list = [[temp_result.detach().clone(), temp_result.detach().clone()] for i in range (len(out_queue_list))]
     del temp_result
@@ -112,7 +108,6 @@ def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, D
     
     first_run = True
     while True:
-            
         queue_idx = notify_queue_list.get()
         if queue_idx is None:
             break
@@ -122,26 +117,12 @@ def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, D
         img = task[0]
         del result_list[queue_idx[0]][0]
         with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
-            result_list[queue_idx[0]].append(model.infer_image_gpu(img))
+            result_list[queue_idx[0]].append(model.infer_image_gpu(img).to(torch.device('cpu')))
+            #result_list[queue_idx[0]].append(model.infer_image_gpu(img).share_memory_()))
+            #result_list[queue_idx[0]].append(model.infer_image(img))
+        #torch.cuda.empty_cache()
         out_queue_list[queue_idx[0]].put(result_list[queue_idx[0]][1])
-
-        #Gpu memory spike issue, seems to be fixed, delete this part later
-        """free, total = torch.cuda.mem_get_info(device)
-        mem_used_MB = (total - free) / 1024 ** 2
-        if (total-free)/total > gpu_memory_cache_cleaning_percentage:
-            print ("High gpu memory detected, cleaning", free," out of ", total,"free ratio: ", free/total)
-            torch.cuda.empty_cache() #Memory issue"""
-            #gc.collect() #Memory issue
-        #torch.cuda.empty_cache() #Memory issue
 def inference_worker (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
-    """redirrect_stdout(DebugDir + f"inference_worker_{os.getpid()}.txt")
-    print_flush (encoder, encoder_path, DEVICE)
-    print_flush ("Torch model loading into device name: ", torch.cuda.get_device_name(DEVICE))
-    model = load_model(encoder, encoder_path, DEVICE)
-    print_flush ("Model loaded, trying to infer an image...")
-    model.infer_image (np.zeros((1080, 1920, 3), dtype = np.uint8))
-    torch.cuda.empty_cache()
-    print_flush ("Model loaded")"""
     
     #profiler = LineProfiler()
     #profiler.add_function(inference_worker_backup)
@@ -150,17 +131,6 @@ def inference_worker (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
     #pystuck.run_server(port = os.getpid())
     inference_worker_backup(in_queue_list, out_queue_list, notify_queue_list, DEVICE)
     #dump_line_profile_to_csv(profiler, filename=DebugDir + f"inference_worker_{os.getpid()}_Profiler.csv")
-    """while True:
-        queue_idx = notify_queue_list.get()
-        if queue_idx is None:
-            break
-        task = in_queue_list[queue_idx[0]].get()
-        if task is None:
-            break
-        img = task[0]
-        with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
-            result = model.infer_image_gpu(img)
-        out_queue_list[queue_idx[0]].put(result)"""
 class LeftSBSProcessor:
     def __init__(self, gpu_notify_queue, gpu_notify_worker_idx, debug_config = [None]):
         self.debug_filePrefix = debug_config [0]
@@ -242,8 +212,9 @@ class LeftSBSProcessor:
         self.last_frame = 1
         #self.gpu_notify_queue.put((self.gpu_notify_worker_idx,))
         #job_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
-        depth = result_queue.get()     # I CHEAT HERE
-
+        depth = result_queue.get().to(torch.device('cuda'), non_blocking=True)
+        #depth = torch.from_numpy(result_queue.get()).to(torch.device('cuda'), non_blocking=True)
+        torch.cuda.empty_cache()
         #DEBUG
         #depth/=(depth.max().item())
         #depth*=15
@@ -471,7 +442,7 @@ def we_ballin ():
                              for i in range (0, Num_GPU_Workers)]    
     for j in range (0, Num_GPU_Workers):
         inference_workers[j].start()
-        random_sleep ((1,3), "staggered model load")
+        random_sleep ((1,2), "staggered model load")
 
     #Initialize SBS workers and start them
     workers = []
@@ -480,7 +451,7 @@ def we_ballin ():
         within_gpu_worker_inference_idx = int(idx/Num_GPU_Workers)
         worker = Process(target = nibba_woka, args = (i, min(end_frame, i + step), job_queue_list[idx], result_queue_list[idx], [notify_queue_list[gpu_worker_number], within_gpu_worker_inference_idx]))
         print ("idx: ", idx,", assigned to gpu_worker: ", gpu_worker_number, ", worker: ", worker)
-        random_sleep ((0.5, 1.5), "Staggered worker start") #There is a reason for this, don't delete this
+        random_sleep ((0, 1), "Staggered worker start") #There is a reason for this, don't delete this
         worker.start()
         workers.append(worker)
 
