@@ -1,25 +1,20 @@
 #Profiling
 from line_profiler import LineProfiler
 #Basic system import
-import os, sys, time, random, traceback, gc, math
-#import logging #Don't remove this
-from tqdm import tqdm
-import cv2
-import numpy as np
+import os, sys, time, random, traceback, gc, math, argparse
+import cv2, numpy as np
 import torch
 from torch.amp import autocast #For FP16
 from torchvision.transforms.v2.functional import gaussian_blur_image, gaussian_blur
 from depth_anything_v2.dpt import DepthAnythingV2
-#Video Export Libraries
-import subprocess
+#Multiprocess libraries
+import subprocess, queue
 import multiprocessing as mp
 from multiprocessing import shared_memory
 from multiprocessing import Process, Queue, set_start_method
-import queue
 #Support Functions
-from SupportFunction import get_length, get_cutoff, get_ffmpeg_config, load_model, load_and_set_video, redirrect_stdout, print_flush, dump_line_profile_to_csv, remove_all_file, random_sleep
 import SupportFunction as SpF
-import argparse
+from SupportFunction import get_length, get_cutoff, get_ffmpeg_config, load_model, load_and_set_video, redirrect_stdout, print_flush, dump_line_profile_to_csv, remove_all_file, random_sleep
 
 #import pystuck
 #pystuck.run_server()
@@ -94,9 +89,15 @@ video_length, ffmpeg_config = SpF.get_ffmpeg_config(VideoDir, ffmpeg_device)
 #logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
 
 def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
-    redirrect_stdout(DebugDir + f"inference_worker_{os.getpid()}.txt")
-    device = torch.device('cuda:0')
+    #device = torch.device('cuda:0')
     print_flush (encoder, encoder_path, DEVICE)
+    #vits, vitb, vitl each output different depth img scale
+    if encoder == 'vits': #depth.max() around 8-9
+        scaler = 1.618 #I'm feeling like it ya know, tbh should have been 1.66
+    elif encoder == 'vitb': #depth.max() around 16-18
+        scaler = 0.8 #Feeling like it
+    elif encoder == 'vitl':  #depth.max() around 550-600 lol
+        scaler = 0.0208
     print_flush ("Torch model loading into device name: ", torch.cuda.get_device_name(DEVICE))
     model = load_model(encoder, encoder_path, DEVICE)
     temp_result = model.infer_image_gpu (np.zeros((1080, 1920, 3), dtype = np.uint8))
@@ -116,21 +117,16 @@ def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, D
             break
         img = task[0]
         del result_list[queue_idx[0]][0]
-        with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
-            result_list[queue_idx[0]].append(model.infer_image_gpu(img).to(torch.device('cpu')))
-            #result_list[queue_idx[0]].append(model.infer_image_gpu(img).share_memory_()))
-            #result_list[queue_idx[0]].append(model.infer_image(img))
-        #torch.cuda.empty_cache()
+        with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16): #Don't ever think about passing gpu tensor through Queue EVER AGAIN NIGGAAAAAAAAAA
+            result_list[queue_idx[0]].append((model.infer_image_gpu(img)*scaler).to(torch.device('cpu'))) #Non_block = True WILL cause error, .share_memory_()
         out_queue_list[queue_idx[0]].put(result_list[queue_idx[0]][1])
+        torch.cuda.empty_cache()
 def inference_worker (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
-    
-    #profiler = LineProfiler()
-    #profiler.add_function(inference_worker_backup)
-    #profiler.enable()
-    #torch.cuda.set_per_process_memory_fraction(0.7, device=0)
+    #profiler = LineProfiler()#profiler.add_function(inference_worker_backup)#profiler.enable() #dump_line_profile_to_csv(profiler, filename=DebugDir + f"inference_worker_{os.getpid()}_Profiler.csv")
     #pystuck.run_server(port = os.getpid())
+    redirrect_stdout(DebugDir + f"inference_worker_{os.getpid()}.txt")
     inference_worker_backup(in_queue_list, out_queue_list, notify_queue_list, DEVICE)
-    #dump_line_profile_to_csv(profiler, filename=DebugDir + f"inference_worker_{os.getpid()}_Profiler.csv")
+
 class LeftSBSProcessor:
     def __init__(self, gpu_notify_queue, gpu_notify_worker_idx, debug_config = [None]):
         self.debug_filePrefix = debug_config [0]
@@ -164,8 +160,8 @@ class LeftSBSProcessor:
         self.non_zero_indices = None
     def get_cutoff (self, depth):
         limit_step = math.ceil(depth.max())
-        offset_range = [offset_bg * depth.shape[0] * limit_step/15.0, #Divided by 14 to normalize
-                        offset_fg * depth.shape[0] * limit_step/13.0]
+        offset_range = [offset_bg * depth.shape[0] * limit_step/13.5, #Divided by 14 to normalize
+                        offset_fg * depth.shape[0] * limit_step/14] #Fg move less than bg to smoothen it out
         cutoff_list = []
         for i in range (int(offset_range[0]), 0, 1): #(...,0, 2) Cai nay giup save 20% time, 550 phut xuong 450 phut
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
@@ -181,16 +177,8 @@ class LeftSBSProcessor:
         for depth_threshold, curr_step in zip(cutoff_list, step_list):
             offset_x = round((depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
             offset_x_list.append (offset_x)
-        #if self.print_once == False: #Debug printing
-            #print ("limit_step: ", limit_step)
-            #print ("offset_range: ", offset_range)
-            #for depth_threshold, curr_step in zip(cutoff_list, step_list):
-            #    t = (depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
-            #    print_flush (depth_threshold,' ',curr_step,' ',t,' ',round(t),' ',int(t))
-            #self.print_once = True
         if random.randint(0, 30) == 15:
-            print ("limit_step (or a.k.a math.ceil(depth.max())): ", limit_step)
-            print ("offset_range: ", offset_range)
+            print ("offset_range: ", offset_range,"limit_step (or a.k.a math.ceil(depth.max())): ", limit_step)
             for depth_threshold, curr_step in zip(cutoff_list, step_list):
                     t = (depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
                     print_flush (depth_threshold,'_',round(t),', ', end='')
@@ -202,39 +190,24 @@ class LeftSBSProcessor:
         job_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
         
     def get_depth (self, raw_img, job_queue, result_queue):
-
-        #if (self.last_frame is None):
-        #    self.gpu_notify_queue.put((self.gpu_notify_worker_idx,))
-        #    job_queue.put((raw_img,))
-        
-        #add raw_img to gpu queue and get result
-        #self.last_frame = raw_img.copy()
         self.last_frame = 1
         #self.gpu_notify_queue.put((self.gpu_notify_worker_idx,))
         #job_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
         depth = result_queue.get().to(torch.device('cuda'), non_blocking=True)
-        #depth = torch.from_numpy(result_queue.get()).to(torch.device('cuda'), non_blocking=True)
-        torch.cuda.empty_cache()
-        #DEBUG
-        #depth/=(depth.max().item())
-        #depth*=15
-        #depth = torch.nan_to_num(depth, nan=0)
+        depth_og_backup = depth.clone()
+        #DEBUG #depth/=(depth.max().item()) #depth*=15 #depth = torch.nan_to_num(depth, nan=0)
         
-        #Intialization
-        #while (len(self.depth_list)<self.depth_dampening_count):
-        #    self.depth_list.append(depth.clone())
-        #t = self.depth_dampening_initial_value
-        #depth = depth*self.depth_dampening_original_ratio
-        #depth*=self.depth_dampening_original_ratio
-        #if (len(self.depth_list) > self.depth_dampening_count):
-        #    print_flush ("EXCUSE WE WTF IS THIS DEPTH LIST LENGTH?", len(self.depth_list))
-        #for i in range (len(self.depth_list)-1, -1, -1):
-        #    depth =  depth + self.depth_list[i]*t
-        #    t = t*self.depth_dampening_ratio
-        #self.depth_list.pop(0)
-        #del self.depth_list[0]
-        #self.depth_list.append (depth)
-        #self.depth_list[-1] = depth.clone() #DEBUG ONLY
+        #Depth temporal smoothing
+        while (len(self.depth_list)<self.depth_dampening_count):
+            self.depth_list.append(depth.clone())
+        t = self.depth_dampening_initial_value
+        depth*=self.depth_dampening_original_ratio
+        for i in range (len(self.depth_list)-1, -1, -1):
+            depth += self.depth_list[i]*t
+            t = t*self.depth_dampening_ratio
+        del self.depth_list[0]
+        torch.cuda.empty_cache()
+        self.depth_list.append (depth_og_backup)        #self.depth_list[-1] = depth.clone() #DEBUG ONLY
         return depth
     def gpu_roll (self, img, shift, axis):  #Same input signature as np.roll to ensure replacability
         #Note for future Gia: Not much speed improvement I'm afraid, but there was... or so I believe
@@ -246,12 +219,21 @@ class LeftSBSProcessor:
             result.append (torch.roll (img_gpu, shifts=i, dims=axis)[None, :]) #.unsqueeze(0)
         result = torch.cat(result, dim=0)  # stack on GPU
         return result #return result.cpu().numpy(), img_gpu
+    def tensor_mem_gb(self, t):
+        if torch.is_tensor(t):
+            return t.element_size() * t.nelement() / (1024**3)
+        elif isinstance(t, (list, tuple)):
+            return sum(tensor_mem_gb(x) for x in t if torch.is_tensor(x))
+        elif isinstance(t, dict):
+            return sum(tensor_mem_gb(x) for x in t.values() if torch.is_tensor(x))
+        else:
+            return 0
     
     def left_side_sbs(self, raw_img, job_queue, result_queue):
-
+        
         img_gpu = torch.from_numpy(raw_img).to(torch.device('cuda'), non_blocking=True)
         depth = self.get_depth(raw_img, job_queue, result_queue) #Bottleneck here
-
+        print_flush ("Depth max: ", depth.max(),", min: ",depth.min())
         #Initialization
         edge_fill = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))
         result_img = torch.zeros(raw_img.shape, dtype=torch.uint8, device = torch.device('cuda'))
@@ -290,6 +272,8 @@ class LeftSBSProcessor:
                 
             #As fast as you can get here, literally, other torch.nonzero option tested
             self.rows, self.cols = torch.nonzero(bin_mask,as_tuple=True)
+            #print(f"{'self.rows':<20}: {self.tensor_mem_gb(self.rows):.3f} GB")
+            #print(f"{'self.cols':<20}: {self.tensor_mem_gb(self.cols):.3f} GB")
             result_img[self.rows, self.cols, :] = offset_img[idx][self.rows, self.cols, :]
             #Debug
             if debug_state == 0:
@@ -335,13 +319,35 @@ class LeftSBSProcessor:
         result = torch.concat([result_img, img_gpu], dim=1) #.detach().cpu().numpy()
         debug_result = torch.concat([debug_result_img, (depth[:,:,None]*15).expand(-1, -1, 3).to(debug_result_img.dtype) ], dim=1)  #.detach().cpu().numpy() #
         debug_result = torch.concat([result, debug_result], dim=0).detach().cpu().numpy()
+
+        """vars_to_check = {
+            'img_gpu': img_gpu,
+            'depth': depth,
+            'edge_fill': edge_fill,
+            'result_img': result_img,
+            'debug_result_img': debug_result_img,
+            'result_blank_mask': result_blank_mask,
+            'offset_img': offset_img,
+            'self.rows': self.rows, 
+            'self.cols': self.cols,
+        }
+        print("\n=== VRAM USAGE (per tensor) ===")
+        for name, var in vars_to_check.items():
+            print(f"{name:<20}: {self.tensor_mem_gb(var):.3f} GB")
+        print("===============================")
+        print(f"Total used by these vars: {sum(self.tensor_mem_gb(v) for v in vars_to_check.values()):.3f} GB")
+        print(f"torch.cuda.memory_allocated(): {torch.cuda.memory_allocated() / 1024**3:.3f} GB")
+        print(f"torch.cuda.memory_reserved():  {torch.cuda.memory_reserved() / 1024**3:.3f} GB")
+        print("===============================\n")
+        print_flush ("SLEEPING Left_side_sbs")
+        time.sleep (10)
+        ádasdasdasd"""
         return debug_result#cv2.hconcat([result_img, raw_img])
 
 def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):
     #Silence all output of child process
     redirrect_stdout(DebugDir + str (begin//(end-begin))+'_' + str(begin)+'.txt')
-    #pystuck.run_server(port = os.getpid())
-    #print_flush ("Pystuck port: ",os.getpid())
+    #pystuck.run_server(port = os.getpid())   #print_flush ("Pystuck port: ",os.getpid())
     gpu_notify_queue = gpu_notify_list[0]
     gpu_notify_worker_idx = gpu_notify_list[1]
     cap, fps, video_length, width, height = load_and_set_video (file_path, begin)
@@ -357,10 +363,7 @@ def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_c
     FrameList = []
     profiler = None
     last_img = None
-    #profiler = LineProfiler()
-    #profiler.add_function(sbsObj.get_depth)
-    #profiler.add_function(sbsObj.left_side_sbs)
-    #profiler.enable()        
+    #profiler = LineProfiler()    #profiler.add_function(sbsObj.get_depth)    #profiler.add_function(sbsObj.left_side_sbs)    #profiler.enable()        
     try:
         for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
