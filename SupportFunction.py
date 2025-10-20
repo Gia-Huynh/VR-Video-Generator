@@ -186,7 +186,7 @@ def get_ffmpeg_config (VideoDir, ffmpeg_device = 'cpu'):
         '-vcodec', 'rawvideo',
         '-pix_fmt', 'rgb24',
         '-s',
-        f'{2*width}x{height}', '-r', str(fps),
+        f'{2*width}x{2*height}', '-r', str(fps), #DEBUG DEBUG DEBUG
         '-i', '-',  # stdin
         '-an',
         '-pix_fmt', 'yuv420p'

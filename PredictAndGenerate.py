@@ -106,7 +106,7 @@ def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, D
     device = torch.device('cuda:0')
     
     #Initialize Result List
-    result_list = [[temp_result.detach().clone()] for i in range (len(out_queue_list))]
+    result_list = [[temp_result.detach().clone(), temp_result.detach().clone()] for i in range (len(out_queue_list))]
     del temp_result
     torch.cuda.empty_cache()
     
@@ -122,16 +122,15 @@ def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, D
         img = task[0]
         del result_list[queue_idx[0]][0]
         with torch.no_grad(), autocast(device_type=DEVICE.type, dtype=torch.float16):
-            #result = model.infer_image_gpu(img)
             result_list[queue_idx[0]].append(model.infer_image_gpu(img))
-        out_queue_list[queue_idx[0]].put(result_list[queue_idx[0]][0])
+        out_queue_list[queue_idx[0]].put(result_list[queue_idx[0]][1])
 
         #Gpu memory spike issue, seems to be fixed, delete this part later
-        free, total = torch.cuda.mem_get_info(device)
+        """free, total = torch.cuda.mem_get_info(device)
         mem_used_MB = (total - free) / 1024 ** 2
         if (total-free)/total > gpu_memory_cache_cleaning_percentage:
             print ("High gpu memory detected, cleaning", free," out of ", total,"free ratio: ", free/total)
-            torch.cuda.empty_cache() #Memory issue
+            torch.cuda.empty_cache() #Memory issue"""
             #gc.collect() #Memory issue
         #torch.cuda.empty_cache() #Memory issue
 def inference_worker (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
@@ -212,13 +211,20 @@ class LeftSBSProcessor:
         for depth_threshold, curr_step in zip(cutoff_list, step_list):
             offset_x = round((depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
             offset_x_list.append (offset_x)
-        if self.print_once == False: #Debug printing
-            print ("limit_step: ", limit_step)
+        #if self.print_once == False: #Debug printing
+            #print ("limit_step: ", limit_step)
+            #print ("offset_range: ", offset_range)
+            #for depth_threshold, curr_step in zip(cutoff_list, step_list):
+            #    t = (depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
+            #    print_flush (depth_threshold,' ',curr_step,' ',t,' ',round(t),' ',int(t))
+            #self.print_once = True
+        if random.randint(0, 30) == 15:
+            print ("limit_step (or a.k.a math.ceil(depth.max())): ", limit_step)
             print ("offset_range: ", offset_range)
             for depth_threshold, curr_step in zip(cutoff_list, step_list):
-                t = (depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
-                print_flush (depth_threshold,' ',curr_step,' ',t,' ',round(t),' ',int(t))
-            self.print_once = True
+                    t = (depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
+                    print_flush (depth_threshold,'_',round(t),', ', end='')
+            print_flush ("")
 
         return cutoff_list, offset_range, step_list, limit_step, offset_x_list
     def add_frame (self, raw_img, job_queue, result_queue):
@@ -238,20 +244,25 @@ class LeftSBSProcessor:
         #job_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
         depth = result_queue.get()     # I CHEAT HERE
 
+        #DEBUG
+        #depth/=(depth.max().item())
+        #depth*=15
+        #depth = torch.nan_to_num(depth, nan=0)
+        
         #Intialization
-        while (len(self.depth_list)<self.depth_dampening_count):
-            self.depth_list.append(depth.clone())
-        t = self.depth_dampening_initial_value
+        #while (len(self.depth_list)<self.depth_dampening_count):
+        #    self.depth_list.append(depth.clone())
+        #t = self.depth_dampening_initial_value
         #depth = depth*self.depth_dampening_original_ratio
-        depth*=self.depth_dampening_original_ratio
-        if (len(self.depth_list) > self.depth_dampening_count):
-            print_flush ("EXCUSE WE WTF IS THIS DEPTH LIST LENGTH?", len(self.depth_list))
-        for i in range (len(self.depth_list)-1, -1, -1):
-            depth =  depth + self.depth_list[i]*t
-            t = t*self.depth_dampening_ratio
+        #depth*=self.depth_dampening_original_ratio
+        #if (len(self.depth_list) > self.depth_dampening_count):
+        #    print_flush ("EXCUSE WE WTF IS THIS DEPTH LIST LENGTH?", len(self.depth_list))
+        #for i in range (len(self.depth_list)-1, -1, -1):
+        #    depth =  depth + self.depth_list[i]*t
+        #    t = t*self.depth_dampening_ratio
         #self.depth_list.pop(0)
-        del self.depth_list[0]
-        self.depth_list.append (depth)
+        #del self.depth_list[0]
+        #self.depth_list.append (depth)
         #self.depth_list[-1] = depth.clone() #DEBUG ONLY
         return depth
     def gpu_roll (self, img, shift, axis):  #Same input signature as np.roll to ensure replacability
@@ -273,6 +284,7 @@ class LeftSBSProcessor:
         #Initialization
         edge_fill = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))
         result_img = torch.zeros(raw_img.shape, dtype=torch.uint8, device = torch.device('cuda'))
+        debug_result_img = torch.zeros(raw_img.shape, dtype=torch.uint8, device = torch.device('cuda'))
         result_blank_mask = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))
         #Kernel init
         kernel_size = round(0.0036 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
@@ -281,6 +293,7 @@ class LeftSBSProcessor:
         cutoff_list, offset_range, step_list, limit_step, offset_x_list = self.get_cutoff(depth)
         offset_img = self.gpu_roll_with_offset(img_gpu, offset_list = offset_x_list, axis=1)
 
+        debug_state = 0
         for idx, depth_threshold, curr_step in zip(range(len(cutoff_list)), cutoff_list, step_list):
             bin_mask = (((depth_threshold - 0.05 * curr_step) <= depth) & (depth < depth_threshold + 1.05 * curr_step)).to(torch.bool)
             
@@ -306,7 +319,15 @@ class LeftSBSProcessor:
                 
             #As fast as you can get here, literally, other torch.nonzero option tested
             self.rows, self.cols = torch.nonzero(bin_mask,as_tuple=True)
-            result_img[self.rows, self.cols, :] = offset_img[idx][self.rows, self.cols, :]# masked_img [rows, cols, :]
+            result_img[self.rows, self.cols, :] = offset_img[idx][self.rows, self.cols, :]
+            #Debug
+            if debug_state == 0:
+                debug_result_img[self.rows, self.cols, :] = offset_img[idx][self.rows, self.cols, :]# masked_img [rows, cols, :]
+                debug_state = 1
+            else:
+                red_img = torch.tensor([150, 0, 0], dtype=torch.uint8, device=torch.device('cuda')).expand(offset_img[idx].size()).clone()
+                debug_result_img[self.rows, self.cols, :] = red_img[self.rows, self.cols, :]# masked_img [rows, cols, :]
+                debug_state = 0
 
             result_blank_mask |= bin_mask
         #cv2.imwrite(self.debug_filePrefix + "_0_InitialResultImg.png", torch.clone(result_img).cpu().numpy()[:,:,[2,1,0]])
@@ -340,7 +361,10 @@ class LeftSBSProcessor:
         #t = gaussian_blur_image(result_img.permute (2,0,1), (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)),sigma = self.sigmaboi).permute (1,2,0)
         #result_img[edge_fill] = t [edge_fill]                    
         result_img[:, 0:round(offset_x/3), :] = img_gpu[:, 0:round(offset_x/3), :]
-        return torch.concat([result_img, img_gpu], dim=1).detach().cpu().numpy()#cv2.hconcat([result_img, raw_img])
+        result = torch.concat([result_img, img_gpu], dim=1) #.detach().cpu().numpy()
+        debug_result = torch.concat([debug_result_img, (depth[:,:,None]*15).expand(-1, -1, 3).to(debug_result_img.dtype) ], dim=1)  #.detach().cpu().numpy() #
+        debug_result = torch.concat([result, debug_result], dim=0).detach().cpu().numpy()
+        return debug_result#cv2.hconcat([result_img, raw_img])
 
 def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):
     #Silence all output of child process

@@ -49,3 +49,8 @@ Nhưng tất cả đều bị kẹt ở     result_img[result_zero_mask] = (gaus
 Nửa đêm 16/10: Đã sửa xong bằng cách aggresively thêm torch.empty_cache() và gc.collect() trong gpu producer process, 
 có lẽ vì reference tới result_img đã bị hủy bỏ nhưng torch không biết để empty cache mà vẫn giữ nó lại, pilling up và tràn vram.
 Giờ thì ram siêu stable. Nhung gpu usage and cpu usage low AF
+
+Vấn đề ram gpu đã sửa xong bằng cách tạo danh sách cố định depth-frame cho từng worker.
+Giờ xử cái vụ high offset.
+
+19/10: [High offset/Depth issue]: Có thể do mình del và overwrite lên depth cũ (có lẽ) trên inference_worker nên bên kia chạy bị lỗi depth, hiện tại sẽ lưu lại 2 depth luôn, 1 cái đã pass vào queue, 1 cái vừa predict nhét thêm vào queue, mỗi lần nhận vào ảnh predict mới thì xóa 1 cái cũ nhất và chèn cái đã predict mới append vào.
