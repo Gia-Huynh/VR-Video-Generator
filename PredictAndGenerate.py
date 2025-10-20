@@ -152,7 +152,7 @@ class LeftSBSProcessor:
         self.last_depth = None
         self.last_frame = None
         self.print_once = False
-
+        self.last_offset_range = None
         #huge memory tensor, keeping it to reuse later.
         self.gay_tensor_1 = None
         self.gay_tensor_2 = None
@@ -162,11 +162,15 @@ class LeftSBSProcessor:
         limit_step = math.ceil(depth.max())
         offset_range = [offset_bg * depth.shape[0] * limit_step/13.5, #Divided by 14 to normalize
                         offset_fg * depth.shape[0] * limit_step/14] #Fg move less than bg to smoothen it out
+        if self.last_offset_range != None:
+            offset_range[0] = (self.last_offset_range[0] + offset_range[0])/2
+            offset_range[1] = (self.last_offset_range[1] + offset_range[1])/2
+        self.last_offset_range = offset_range
         cutoff_list = []
-        for i in range (int(offset_range[0]), 0, 1): #(...,0, 2) Cai nay giup save 20% time, 550 phut xuong 450 phut
+        for i in range (round(offset_range[0]), 0, 1): #(...,0, 2) Cai nay giup save 20% time, 550 phut xuong 450 phut
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         cutoff_list.append ((0 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
-        for i in range (1, int(offset_range[1]), 1): #What's in front of you should not be coarse
+        for i in range (1, round(offset_range[1]), 1): #What's in front of you should not be coarse
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         cutoff_list.append (limit_step)
         cutoff_list = sorted (cutoff_list)
@@ -177,7 +181,7 @@ class LeftSBSProcessor:
         for depth_threshold, curr_step in zip(cutoff_list, step_list):
             offset_x = round((depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
             offset_x_list.append (offset_x)
-        if random.randint(0, 30) == 15:
+        if random.randint(0, 25) == 1:
             print ("offset_range: ", offset_range,"limit_step (or a.k.a math.ceil(depth.max())): ", limit_step)
             for depth_threshold, curr_step in zip(cutoff_list, step_list):
                     t = (depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
@@ -194,11 +198,9 @@ class LeftSBSProcessor:
         #self.gpu_notify_queue.put((self.gpu_notify_worker_idx,))
         #job_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
         depth = result_queue.get().to(torch.device('cuda'), non_blocking=True)
-        depth_og_backup = depth.clone()
-        #DEBUG #depth/=(depth.max().item()) #depth*=15 #depth = torch.nan_to_num(depth, nan=0)
-        
+        depth_og_backup = depth.clone()        
         #Depth temporal smoothing
-        while (len(self.depth_list)<self.depth_dampening_count):
+        while (len(self.depth_list)<self.depth_dampening_count): #If empty starts smoothing
             self.depth_list.append(depth.clone())
         t = self.depth_dampening_initial_value
         depth*=self.depth_dampening_original_ratio
@@ -206,7 +208,7 @@ class LeftSBSProcessor:
             depth += self.depth_list[i]*t
             t = t*self.depth_dampening_ratio
         del self.depth_list[0]
-        torch.cuda.empty_cache()
+        #torch.cuda.empty_cache()
         self.depth_list.append (depth_og_backup)        #self.depth_list[-1] = depth.clone() #DEBUG ONLY
         return depth
     def gpu_roll (self, img, shift, axis):  #Same input signature as np.roll to ensure replacability
@@ -233,7 +235,7 @@ class LeftSBSProcessor:
         
         img_gpu = torch.from_numpy(raw_img).to(torch.device('cuda'), non_blocking=True)
         depth = self.get_depth(raw_img, job_queue, result_queue) #Bottleneck here
-        print_flush ("Depth max: ", depth.max(),", min: ",depth.min())
+        #print_flush ("Depth max: ", depth.max(),", min: ",depth.min())
         #Initialization
         edge_fill = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))
         result_img = torch.zeros(raw_img.shape, dtype=torch.uint8, device = torch.device('cuda'))
