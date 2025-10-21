@@ -62,48 +62,7 @@ vitb Sleep on ending of left_side_sbs tràn mẹ vram
 vits Sleep on beginning of left_side_sbs ăn tổng 2.8gb vram dedicated
 vits Sleep on ending of left_side_sbs ăn tổng 7.4gb vram
 
-Hóa ra output của vitb và vits khác nhau hoàn toàn về scale
+Hóa ra output của vitb và vits khác nhau hoàn toàn về scale, dẫn tới get_cutoff output khác nhau hẳn.
 
-VITB version:
-Worker 0: Depth max:  tensor(15.0165, device='cuda:0') , min:  tensor(0.0384, device='cuda:0')
-Worker 4: Depth max:  tensor(18.0846, device='cuda:0') , min:  tensor(-1.1107, device='cuda:0')
-During Run:
-self.rows           : 0.000 GB
-self.cols           : 0.000 GB
-=== VRAM USAGE (per tensor) ===
-img_gpu             : 0.006 GB
-depth               : 0.008 GB
-edge_fill           : 0.002 GB
-result_img          : 0.006 GB
-debug_result_img    : 0.006 GB
-result_blank_mask   : 0.002 GB
-offset_img          : 0.626 GB
-self.rows           : 0.000 GB
-self.cols           : 0.000 GB
-===============================
-Total used by these vars: 0.655 GB
-torch.cuda.memory_allocated(): 0.692 GB
-torch.cuda.memory_reserved():  1.463 GB
-===============================
-
-VITS version:
-worker 0: Depth max:  tensor(7.4940, device='cuda:0') , min:  tensor(0.2872, device='cuda:0')
-worker 4: Depth max:  tensor(8.7395, device='cuda:0') , min:  tensor(-0.3765, device='cuda:0')
-During Run:
-self.rows           : 0.000 GB
-self.cols           : 0.000 GB
-=== VRAM USAGE (per tensor) ===
-img_gpu             : 0.006 GB
-depth               : 0.008 GB
-edge_fill           : 0.002 GB
-result_img          : 0.006 GB
-debug_result_img    : 0.006 GB
-result_blank_mask   : 0.002 GB
-offset_img          : 0.307 GB
-self.rows           : 0.000 GB
-self.cols           : 0.000 GB
-===============================
-Total used by these vars: 0.336 GB
-torch.cuda.memory_allocated(): 0.373 GB
-torch.cuda.memory_reserved():  0.795 GB
-===============================
+Owl3D chị gái vú to dịch foreground qua trái 4 pixel, không dịch background.
+Ớ HÓA RA MÌNH LÀM NGƯỢC À?

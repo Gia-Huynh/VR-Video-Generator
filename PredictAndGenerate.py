@@ -160,8 +160,8 @@ class LeftSBSProcessor:
         self.non_zero_indices = None
     def get_cutoff (self, depth):
         limit_step = math.ceil(depth.max())
-        offset_range = [offset_bg * depth.shape[0] * limit_step/13.5, #Divided by 14 to normalize
-                        offset_fg * depth.shape[0] * limit_step/14] #Fg move less than bg to smoothen it out
+        offset_range = [offset_bg * depth.shape[0] * limit_step/14, #Divided by 14 to normalize
+                        offset_fg * depth.shape[0] * limit_step/14]
         if self.last_offset_range != None:
             offset_range[0] = (self.last_offset_range[0] + offset_range[0])/2
             offset_range[1] = (self.last_offset_range[1] + offset_range[1])/2
@@ -181,12 +181,7 @@ class LeftSBSProcessor:
         for depth_threshold, curr_step in zip(cutoff_list, step_list):
             offset_x = round((depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0])
             offset_x_list.append (offset_x)
-        if random.randint(0, 25) == 1:
-            print ("offset_range: ", offset_range,"limit_step (or a.k.a math.ceil(depth.max())): ", limit_step)
-            for depth_threshold, curr_step in zip(cutoff_list, step_list):
-                    t = (depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]
-                    print_flush (depth_threshold,'_',round(t),', ', end='')
-            print_flush ("")
+        #if random.randint(0, 25) == 1:            print ("offset_range: ", offset_range,"limit_step (or a.k.a math.ceil(depth.max())): ", limit_step)            for depth_threshold, curr_step in zip(cutoff_list, step_list):                    t = (depth_threshold) / (0.00001+limit_step) * (0.00001+offset_range[1] - offset_range[0]) + offset_range[0]                    print_flush (depth_threshold,'_',round(t),', ', end='')            print_flush ("")
 
         return cutoff_list, offset_range, step_list, limit_step, offset_x_list
     def add_frame (self, raw_img, job_queue, result_queue):
@@ -232,14 +227,11 @@ class LeftSBSProcessor:
             return 0
     
     def left_side_sbs(self, raw_img, job_queue, result_queue):
-        
         img_gpu = torch.from_numpy(raw_img).to(torch.device('cuda'), non_blocking=True)
         depth = self.get_depth(raw_img, job_queue, result_queue) #Bottleneck here
-        #print_flush ("Depth max: ", depth.max(),", min: ",depth.min())
         #Initialization
         edge_fill = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))
         result_img = torch.zeros(raw_img.shape, dtype=torch.uint8, device = torch.device('cuda'))
-        debug_result_img = torch.zeros(raw_img.shape, dtype=torch.uint8, device = torch.device('cuda'))
         result_blank_mask = torch.zeros(raw_img.shape[:2], dtype=torch.bool, device = torch.device('cuda'))
         #Kernel init
         kernel_size = round(0.0036 * raw_img.shape[0]) #0.0047 is the OG, then 0.0036 works fine, 0.0024 is a bit too low.
@@ -255,96 +247,27 @@ class LeftSBSProcessor:
             offset_x = offset_x_list[idx]
             if offset_x != 0:
                 bin_mask = torch.roll(bin_mask, shifts=offset_x, dims=1).to(torch.bool)
-            
-            """if offset_x > 0:
-                if self.gay_tensor_1 is None:
-                    self.gay_tensor_1 =torch.tensor([[[[-1, 1]]]], dtype=torch.float32, device=bin_mask.device)
-                kernel = self.gay_tensor_1
-                edge_fill |= (
-                    torch.nn.functional.conv2d(bin_mask.float().unsqueeze(0).unsqueeze(0), kernel, padding='same')[0, 0] > 0
-                )
 
-            elif offset_x < 0:
-                if self.gay_tensor_2 is None:
-                    self.gay_tensor_2 =torch.tensor([[[[1, -1]]]], dtype=torch.float32, device=bin_mask.device)
-                kernel = self.gay_tensor_2
-                edge_fill |= (
-                    torch.nn.functional.conv2d(bin_mask.float().unsqueeze(0).unsqueeze(0), kernel, padding='same')[0, 0] > 0
-                )"""
-                
             #As fast as you can get here, literally, other torch.nonzero option tested
             self.rows, self.cols = torch.nonzero(bin_mask,as_tuple=True)
-            #print(f"{'self.rows':<20}: {self.tensor_mem_gb(self.rows):.3f} GB")
-            #print(f"{'self.cols':<20}: {self.tensor_mem_gb(self.cols):.3f} GB")
             result_img[self.rows, self.cols, :] = offset_img[idx][self.rows, self.cols, :]
-            #Debug
-            if debug_state == 0:
-                debug_result_img[self.rows, self.cols, :] = offset_img[idx][self.rows, self.cols, :]# masked_img [rows, cols, :]
-                debug_state = 1
-            else:
-                red_img = torch.tensor([150, 0, 0], dtype=torch.uint8, device=torch.device('cuda')).expand(offset_img[idx].size()).clone()
-                debug_result_img[self.rows, self.cols, :] = red_img[self.rows, self.cols, :]# masked_img [rows, cols, :]
-                debug_state = 0
 
             result_blank_mask |= bin_mask
-        #cv2.imwrite(self.debug_filePrefix + "_0_InitialResultImg.png", torch.clone(result_img).cpu().numpy()[:,:,[2,1,0]])
         result_zero_mask = (~result_blank_mask).to (torch.float32)
         kernel_expand = torch.ones ((max(kernel_size, 1),  max(kernel_size, 1)), dtype=torch.float32, device=bin_mask.device).unsqueeze(0).unsqueeze(0)
-        """result_zero_mask =  torch.nn.functional.conv2d(
-                                                        (torch.nn.functional.conv2d(
-                                                            result_zero_mask.unsqueeze(0).unsqueeze(0),
-                                                            kernel_expand,
-                                                            padding='same')[0, 0] > 0
-                                                        ).to (torch.float32).unsqueeze(0).unsqueeze(0),
-                                                        kernel_expand,
-                                                        padding='same'
-                                                    )[0, 0] >= max(kernel_size, 1) * max(kernel_size, 1)"""
         
         #Fill result_img with blurred value from zero_mask
         result_zero_mask = result_zero_mask.to(torch.bool)
-        """result_img[result_zero_mask] = (gaussian_blur(img_gpu.permute (2,0,1),
-                                                      (kernel_size*2 + 3, kernel_size*2 + 1),
-                                                      #(limit_step*2 + 3, limit_step*2 + 1),
-                                                      sigma = self.sigmaboi
-                                        )).permute (1,2,0)[result_zero_mask] #Help fill black gap"""
+
         result_img[result_zero_mask] = offset_img[int(len(offset_img)*3/5)][result_zero_mask]        
         result_img[result_zero_mask] = (gaussian_blur(result_img.permute (2,0,1),
                                                       (kernel_size*2 + 3, kernel_size*2 + 1),
-                                                      #(limit_step + (limit_step%2==0), round(limit_step/4)*2 + 1),
                                                       sigma = self.sigmaboi
                                         )).permute (1,2,0)[result_zero_mask] #Help smoothen out the transition
-        #Is this line necessary?
-        # (Deleted, cv2.dilate edge_fill_positive)
-        #t = gaussian_blur_image(result_img.permute (2,0,1), (kernel_size+(kernel_size%2==0), kernel_size+(kernel_size%2==0)),sigma = self.sigmaboi).permute (1,2,0)
-        #result_img[edge_fill] = t [edge_fill]                    
+                  
         result_img[:, 0:round(offset_x/3), :] = img_gpu[:, 0:round(offset_x/3), :]
-        result = torch.concat([result_img, img_gpu], dim=1) #.detach().cpu().numpy()
-        debug_result = torch.concat([debug_result_img, (depth[:,:,None]*15).expand(-1, -1, 3).to(debug_result_img.dtype) ], dim=1)  #.detach().cpu().numpy() #
-        debug_result = torch.concat([result, debug_result], dim=0).detach().cpu().numpy()
-
-        """vars_to_check = {
-            'img_gpu': img_gpu,
-            'depth': depth,
-            'edge_fill': edge_fill,
-            'result_img': result_img,
-            'debug_result_img': debug_result_img,
-            'result_blank_mask': result_blank_mask,
-            'offset_img': offset_img,
-            'self.rows': self.rows, 
-            'self.cols': self.cols,
-        }
-        print("\n=== VRAM USAGE (per tensor) ===")
-        for name, var in vars_to_check.items():
-            print(f"{name:<20}: {self.tensor_mem_gb(var):.3f} GB")
-        print("===============================")
-        print(f"Total used by these vars: {sum(self.tensor_mem_gb(v) for v in vars_to_check.values()):.3f} GB")
-        print(f"torch.cuda.memory_allocated(): {torch.cuda.memory_allocated() / 1024**3:.3f} GB")
-        print(f"torch.cuda.memory_reserved():  {torch.cuda.memory_reserved() / 1024**3:.3f} GB")
-        print("===============================\n")
-        print_flush ("SLEEPING Left_side_sbs")
-        time.sleep (10)
-        ádasdasdasd"""
-        return debug_result#cv2.hconcat([result_img, raw_img])
+        result = torch.concat([result_img, img_gpu], dim=1).detach().cpu().numpy()
+        return result
 
 def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):
     #Silence all output of child process
