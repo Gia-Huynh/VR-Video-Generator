@@ -66,3 +66,6 @@ Hóa ra output của vitb và vits khác nhau hoàn toàn về scale, dẫn tớ
 
 Owl3D chị gái vú to dịch foreground qua trái 4 pixel, không dịch background.
 Ớ HÓA RA MÌNH LÀM NGƯỢC À?
+Mình làm chị máy bay vú to 0.01 thì cánh tay foreground chỉ dịch có 3 pixel.
+nên test thử với 0.02
+và thằng owl mặc định nó không dịch background

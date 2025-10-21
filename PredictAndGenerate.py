@@ -226,7 +226,7 @@ class LeftSBSProcessor:
         else:
             return 0
     
-    def left_side_sbs(self, raw_img, job_queue, result_queue):
+    def left_side_sbs(self, raw_img, job_queue, result_queue): #More like right_side_sbs now
         img_gpu = torch.from_numpy(raw_img).to(torch.device('cuda'), non_blocking=True)
         depth = self.get_depth(raw_img, job_queue, result_queue) #Bottleneck here
         #Initialization
@@ -266,7 +266,7 @@ class LeftSBSProcessor:
                                         )).permute (1,2,0)[result_zero_mask] #Help smoothen out the transition
                   
         result_img[:, 0:round(offset_x/3), :] = img_gpu[:, 0:round(offset_x/3), :]
-        result = torch.concat([result_img, img_gpu], dim=1).detach().cpu().numpy()
+        result = torch.concat([img_gpu, result_img], dim=1).detach().cpu().numpy()
         return result
 
 def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):

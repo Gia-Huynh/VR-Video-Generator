@@ -1,6 +1,8 @@
 from dearpygui.dearpygui import *
 import subprocess
 
+state = {
+    }
 args = {
     "DebugDir": "Debug/",
     "SubClipDir": "D:/TEMP/JAV Subclip/",
@@ -42,6 +44,13 @@ def update_value(sender, app_data, user_data):
     args[user_data] = app_data
     update_preview()
 
+def update_value_video(sender, app_data, user_data):
+    # Auto-append .mkv for video/output paths
+    if not (app_data.lower().endswith(".mkv") or app_data.lower().endswith(".mp4")):
+        app_data += ".mkv"
+        set_value(sender, app_data)  # update the input box immediately
+    update_value(sender, app_data, user_data)
+    
 def update_preview():
     cmd = "python PredictAndGenerate.py " + " ".join(
         [f'--{k} "{v}"' for k, v in args.items()]
@@ -105,9 +114,9 @@ with window(label="PredictAndGenerate", tag="main_window", width=1580, height=78
 
                 add_spacer(width=0, height=10)  # 10 pixels vertical space
                 with group(horizontal=True):
-                    add_text("Output (Result) Video Directory")
+                    add_text("Output (Result) Video Path")
                     button_list.append(add_button(label="Select Output File", callback=lambda: open_file_dialog("OutputDir")))
-                add_input_text(tag="OutputDir", default_value=args["OutputDir"], callback=update_value, user_data="OutputDir", width=-1)
+                add_input_text(tag="OutputDir", default_value=args["OutputDir"], callback=update_value_video, user_data="OutputDir", width=-1)
                 
                 add_spacer(width=0, height=10)  # 10 pixels vertical space
                 with group(horizontal=True):
