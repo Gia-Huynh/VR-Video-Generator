@@ -38,6 +38,8 @@ parser.add_argument('--offset_fg',  type=float,
                                     default=0.02) #0.0125 chưa đủ đô
 parser.add_argument('--offset_bg',  type=float,
                                     default=-0.05) #-0.0225 chưa đủ đô
+parser.add_argument('--offset_step_size',  type=float,
+                                    default=1) #Step for offset cutoff
 parser.add_argument('--Num_Workers',type=int,
                                     default=8)
 parser.add_argument('--num_gpu',    type=int,
@@ -65,6 +67,7 @@ encoder = args.encoder
 encoder_path = args.encoder_path
 offset_fg = args.offset_fg
 offset_bg = args.offset_bg
+offset_step_size = args.offset_step_size
 Num_Workers = args.Num_Workers
 num_gpu = args.num_gpu
 Num_GPU_Workers = args.Num_GPU_Workers
@@ -148,6 +151,7 @@ class LeftSBSProcessor:
 
         #Persistent variable
         self.sigmaboi = 3
+        self.offset_step_size = offset_step_size
         self.last_depth_flag = True
         self.last_depth = None
         self.last_frame = None
@@ -167,10 +171,10 @@ class LeftSBSProcessor:
             offset_range[1] = (self.last_offset_range[1] + offset_range[1])/2
         self.last_offset_range = offset_range
         cutoff_list = []
-        for i in range (round(offset_range[0]), 0, 1): #(...,0, 2) Cai nay giup save 20% time, 550 phut xuong 450 phut
+        for i in range (round(offset_range[0]), 0, self.offset_step_size): #(...,0, 2) Cai nay giup save 20% time, 550 phut xuong 450 phut
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         cutoff_list.append ((0 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
-        for i in range (1, round(offset_range[1]), 1): #What's in front of you should not be coarse
+        for i in range (1, round(offset_range[1]), self.offset_step_size): #What's in front of you should not be coarse
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         cutoff_list.append (limit_step)
         cutoff_list = sorted (cutoff_list)
@@ -266,7 +270,7 @@ class LeftSBSProcessor:
                                         )).permute (1,2,0)[result_zero_mask] #Help smoothen out the transition
                   
         result_img[:, 0:round(offset_x/3), :] = img_gpu[:, 0:round(offset_x/3), :]
-        result = torch.concat([img_gpu, result_img], dim=1).detach().cpu().numpy()
+        result = torch.concat([result_img, img_gpu], dim=1).detach().cpu().numpy()
         return result
 
 def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_count = Max_Frame_Count, file_path = VideoDir, repair_mode = repair_mode):
