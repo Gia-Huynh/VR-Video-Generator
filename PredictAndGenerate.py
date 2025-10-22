@@ -80,8 +80,8 @@ end_frame = args.end_frame
 repair_mode = args.repair_mode
 
 create_folder_if_not_exist (DebugDir)
-create_folder_if_not_exist (SubClipDir)
-create_folder_if_not_exist (OutputDir)
+#create_folder_if_not_exist (SubClipDir)
+#create_folder_if_not_exist (OutputDir)
 
 if (offset_bg * offset_fg > 0):
     #If offset_bg and offset_fg are both negative or both positive
@@ -276,7 +276,7 @@ class LeftSBSProcessor:
                                                       sigma = self.sigmaboi
                                         )).permute (1,2,0)[result_zero_mask] #Help smoothen out the transition
                   
-        result_img[:, 0:round(offset_x/3), :] = img_gpu[:, 0:round(offset_x/3), :]
+        result_img[:, 0:round(offset_x/3*2), :] = img_gpu[:, 0:round(offset_x/3*2), :]
         result = torch.concat([result_img, img_gpu], dim=1).detach().cpu().numpy()
         return result
 
@@ -322,7 +322,7 @@ def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_c
             #gc.collect() #Memory issue
             if (len (FrameList) == max_frame_count) or (i == (min (end-1, video_length-1))):
                 step_taken = i - begin
-                print_flush ("Time elapsed (minutes):", ((time.time() - begin_time))/60.0,", ETA:", ((time.time() - begin_time) / step_taken * (total_step - step_taken))/60.0,", Estimated Total Time (minutes):", ((time.time() - begin_time) / step_taken * total_step)/60.0)
+                print_flush ("Estimated Total Time (minutes):", ((time.time() - begin_time) / step_taken * total_step)/60.0,", Time elapsed (minutes):", ((time.time() - begin_time))/60.0,", ETA:", ((time.time() - begin_time) / step_taken * (total_step - step_taken))/60.0)
                 print_flush (str(int(step_taken / total_step * 10000)/100), " %")            
 
                 if (ffmpeg_proc is not None): #If the previous ffmpeg subprocess did not finished, wait till it's done before generating new one

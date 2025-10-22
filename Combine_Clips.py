@@ -19,7 +19,7 @@ def combine_clips (subclip_path, original_path, output_path, just_combine = 0):
             f.write(f"file '{fullfile}'\n")
     # Step 3: Concatenate video files
     concat_cmd = [
-        "ffmpeg", "-f", "concat", "-safe", "0", "-i", file_list_path, "-c", "copy", "temp_video.mkv"
+        "ffmpeg", "-f", "concat", "-safe", "0", "-y", "-i", file_list_path, "-c", "copy", "temp_video.mkv"
     ]
     subprocess.run(concat_cmd, check=True)
     if (just_combine == 1):

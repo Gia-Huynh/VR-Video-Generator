@@ -151,7 +151,7 @@ with dpg.window(label="PredictAndGenerate", tag="main_window", width=1580, heigh
                 with dpg.group(horizontal=True):
                     dpg.add_text("Output Folder")
                     button_list.append(dpg.add_button(label="Select Output Folder", callback=lambda: open_dir_dialog("OutputDirectory")))
-                dpg.add_input_text(tag="OutputDirectory", default_value=args["OutputDirectory"], callback=update_value_video, user_data="OutputDirectory", width=-1)
+                dpg.add_input_text(tag="OutputDirectory", default_value=args["OutputDirectory"], callback=update_value, user_data="OutputDirectory", width=-1)
                 with dpg.group(horizontal=True):
                     dpg.add_text("Output Video Name")
                     #button_list.append(dpg.add_button(label="Select Output Name", callback=lambda: open_file_dialog("OutputName")))
