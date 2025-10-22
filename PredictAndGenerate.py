@@ -14,7 +14,10 @@ from multiprocessing import shared_memory
 from multiprocessing import Process, Queue, set_start_method
 #Support Functions
 import SupportFunction as SpF
-from SupportFunction import get_length, get_cutoff, get_ffmpeg_config, load_model, load_and_set_video, redirrect_stdout, print_flush, dump_line_profile_to_csv, remove_all_file, random_sleep
+from SupportFunction import (get_length, get_cutoff, get_ffmpeg_config, load_model,
+                             load_and_set_video, redirrect_stdout, print_flush,
+                             dump_line_profile_to_csv, remove_all_file, random_sleep,
+                             create_folder_if_not_exist)
 
 #import pystuck
 #pystuck.run_server()
@@ -38,7 +41,7 @@ parser.add_argument('--offset_fg',  type=float,
                                     default=0.02) #0.0125 chưa đủ đô
 parser.add_argument('--offset_bg',  type=float,
                                     default=-0.05) #-0.0225 chưa đủ đô
-parser.add_argument('--offset_step_size',  type=float,
+parser.add_argument('--offset_step_size',  type=int,
                                     default=1) #Step for offset cutoff
 parser.add_argument('--Num_Workers',type=int,
                                     default=8)
@@ -76,7 +79,13 @@ start_frame = args.start_frame
 end_frame = args.end_frame
 repair_mode = args.repair_mode
 
+create_folder_if_not_exist (DebugDir)
+create_folder_if_not_exist (SubClipDir)
+create_folder_if_not_exist (OutputDir)
+
 if (offset_bg * offset_fg > 0):
+    #If offset_bg and offset_fg are both negative or both positive
+    # at the same time, one must then be different sign.
     if (offset_bg >= 0):
         offset_bg = offset_bg * (-1)
     else:
@@ -84,13 +93,9 @@ if (offset_bg * offset_fg > 0):
 
 #if smaller than video length, will be clipped off
 video_length = 0
-gpu_memory_cache_cleaning_percentage = 0.5
-cache_clearing_frequency = 10
 ffmpeg_device = 'cpu'
 video_length, ffmpeg_config = SpF.get_ffmpeg_config(VideoDir, ffmpeg_device)
 # Initialize logging
-#logging.basicConfig(level=logging.DEBUG, filename=DebugDir+'logging.txt', filemode='w', format='%(asctime)s - %(levelname)s - %(message)s')
-
 def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
     #device = torch.device('cuda:0')
     print_flush (encoder, encoder_path, DEVICE)
@@ -101,6 +106,8 @@ def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, D
         scaler = 0.8 #Feeling like it
     elif encoder == 'vitl':  #depth.max() around 550-600 lol
         scaler = 0.0208
+    else:
+        scaler = 1 #Leave it be then
     print_flush ("Torch model loading into device name: ", torch.cuda.get_device_name(DEVICE))
     model = load_model(encoder, encoder_path, DEVICE)
     temp_result = model.infer_image_gpu (np.zeros((1080, 1920, 3), dtype = np.uint8))

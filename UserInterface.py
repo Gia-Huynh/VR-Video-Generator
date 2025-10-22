@@ -1,25 +1,31 @@
 import dearpygui.dearpygui as dpg
 from file_dialog.fdialog import FileDialog
 import subprocess
-import os
+import os, psutil
 OG_cwd = os.getcwd()
 state = {
     "proc" : None
 }
 args = {
     "VideoDir": "Videos/Input/Maria Nagai [Trimmed].mp4", #"Original video here"
-    "OutputDirectory": "Videos/Output/", #"Output video directory here"
-    "OutputName": "KILL ME.mkv", #"Output video name here"
-    "OutputDir": "WillBeCalculated", #"Output video name here"
-    "DebugDir": "Debug/",
+    "OutputDirectory": "./Videos/Output", #"Output video folder here"
+    "OutputName": "KillMe.mkv", #"Output video name here"
+    "OutputDir": "Will Be Auto Calculated", #"Output video name here"
     "SubClipDir": "D:/TEMP/JAV Subclip/",
+    #"VideoDir": "Path to input video",
+    #"OutputDirectory": "Enter output video folder path",
+    #"OutputName": "Output file name [auto end with .mkv]",
+    #"OutputDir": "Will Be Auto Calculated.mkv",
+    #"SubClipDir": "./Subclip",
+    "DebugDir": "./Debug/",
     "encoder": "vitb",
     "encoder_path": "depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth",
     "offset_fg": 0.025,
-    "offset_bg": -0.005,
+    "offset_bg": -0.004,
+    "offset_step_size": 1,
     "Num_Workers": 6,
     "num_gpu": 1,
-    "Num_GPU_Workers": 1,
+    "Num_GPU_Workers": 2,
     "Max_Frame_Count": 30,
     "start_frame": 0,
     "end_frame": 999999999999999,
@@ -77,11 +83,15 @@ def run_script(sender, app_data):
 
 def stop_script():
     if state["proc"] and (state["proc"].poll() is None):  # Still running
-        state["proc"].terminate()  # Graceful
+        """state["proc"].terminate()  # Graceful
         try:
             state["proc"].wait(timeout=10)
         except subprocess.TimeoutExpired:
-            state["proc"].kill()  # Force kill if not exiting
+            state["proc"].kill()  # Force kill if not exiting"""
+        parent = psutil.Process(state["proc"].pid)
+        for child in parent.children(recursive=True):
+            child.kill()
+        parent.kill()
         print("Process stopped.")
     else:
         print("No process running.")
@@ -163,14 +173,15 @@ with dpg.window(label="PredictAndGenerate", tag="main_window", width=1580, heigh
             with dpg.group(horizontal=False):
                 dpg.add_text("Video Parameter")
                 dpg.add_spacer(width=0, height=10)  # 10 pixels vertical space
-                dpg.add_input_float(label="offset_fg", default_value=args["offset_fg"], callback=update_value, user_data="offset_fg")
-                dpg.add_input_float(label="offset_bg", default_value=args["offset_bg"], callback=update_value, user_data="offset_bg")
+                dpg.add_input_float(label="offset foreground", default_value=args["offset_fg"], callback=update_value, user_data="offset_fg")
+                dpg.add_input_float(label="offset background", default_value=args["offset_bg"], callback=update_value, user_data="offset_bg")
+                dpg.add_input_int(label="offset step size", default_value=args["offset_step_size"], callback=update_value, user_data="offset_step_size")
 
                 dpg.add_text("Performance Parameter")
-                dpg.add_input_int(label="Num_Workers", default_value=args["Num_Workers"], callback=update_value, user_data="Num_Workers")
-                dpg.add_input_int(label="num_gpu", default_value=args["num_gpu"], callback=update_value, user_data="num_gpu")
-                dpg.add_input_int(label="Num_GPU_Workers", default_value=args["Num_GPU_Workers"], callback=update_value, user_data="Num_GPU_Workers")
-                dpg.add_input_int(label="Max_Frame_Count", default_value=args["Max_Frame_Count"], callback=update_value, user_data="Max_Frame_Count")
+                dpg.add_input_int(label="Workers Count", default_value=args["Num_Workers"], callback=update_value, user_data="Num_Workers")
+                dpg.add_input_int(label="Gpu Count", default_value=args["num_gpu"], callback=update_value, user_data="num_gpu")
+                dpg.add_input_int(label="GPU Workers Count", default_value=args["Num_GPU_Workers"], callback=update_value, user_data="Num_GPU_Workers")
+                dpg.add_input_int(label="Batch Frame Count", default_value=args["Max_Frame_Count"], callback=update_value, user_data="Max_Frame_Count")
                 dpg.add_text("Debug Parameter, don't touch")
                 dpg.add_combo(label="repair_mode", items=["0 - Full", "1 - Rerun no combine", "2 - Combine - Export video", "3 - [Debug] Combine video only, temp.mp4"],
                           default_value="0 - Full",

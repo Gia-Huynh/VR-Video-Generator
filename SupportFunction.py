@@ -8,6 +8,7 @@ from line_profiler import LineProfiler
 import os
 import csv
 import inspect
+from pathlib import Path
 
 def dump_line_profile_to_csv(profiler, filename="line_profile_output.csv"):
     file_exists = os.path.exists(filename)
@@ -58,7 +59,8 @@ def remove_all_file (dir_path):
                     pass
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
-            
+def create_folder_if_not_exist(folder_dir):
+    Path(folder_dir).mkdir(parents=False, exist_ok=True)
 def random_sleep (sleep_length, message = ""):
     sleep_length = random.uniform(sleep_length[0], sleep_length[1])
     print (message + " : " + str(sleep_length) +  " seconds.")
