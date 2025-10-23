@@ -57,9 +57,10 @@ parser.add_argument('--end_frame',  type=int,
                                     default=99999999999999) #82800 + 450 #9999999999999, 27000 is 15 minutes, 9000 5 minutes
 parser.add_argument('--repair_mode',type=int,
                                     default=0) #Repair mode 0: Default option, clear debug/subclip dir, rerun everything and combine
-                                                #Repair mode 1: Just run videos, clear only debug dir, rerun everything, no combine
-                                                #Repair mode 2: Just combine videos with audio
-                                                #Repair mode 3: Combine video only, outputing temp.mp4
+                                                #Repair mode 1: Just run videos, clear only debug dir, rerun everything, no combine,
+                                                                # used by Check_clips.py to regenerate error subclip.
+                                                #Repair mode 2: Combine subclip with audio.
+                                                #Repair mode 3: Combine video only, outputting temp.mkv, used in debugging.
 args = parser.parse_args()
 
 DebugDir = args.DebugDir

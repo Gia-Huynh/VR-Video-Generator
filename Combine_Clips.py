@@ -1,9 +1,7 @@
 import os
 import subprocess
 import glob
-subclip_path = "D:/TEMP/JAV Subclip"  # Folder containing sub-clips
-original_path = "Videos/Shoplifter Aryana Amatista.mp4" # Full video with audio
-output_path = "SBS Aryana Amatista.mp4"
+
 
 def combine_clips (subclip_path, original_path, output_path, just_combine = 0):
     # Step 1: Get all sub-clip filenames and sort them numerically
@@ -51,6 +49,9 @@ def combine_clips (subclip_path, original_path, output_path, just_combine = 0):
         pass
     print(f"Final video saved as {output_path}")
 if __name__ == "__main__":
+    subclip_path = "D:/TEMP/JAV Subclip"  # Folder containing sub-clips
+    original_path = "Videos/Shoplifter Aryana Amatista.mp4" # Full video with audio
+    output_path = "SBS Aryana Amatista.mp4"
     combine_clips (subclip_path, original_path, output_path, just_combine = 0)
     import cv2
     original_cap = cv2.VideoCapture (original_path)

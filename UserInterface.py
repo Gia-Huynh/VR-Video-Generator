@@ -68,7 +68,13 @@ def update_preview():
         [f'--{k} "{v}"' for k, v in args.items() if k not in ["OutputDirectory", "OutputName"]]
     )
     dpg.set_value("preview_text", cmd)
-
+def auto_update_filename (update_target):
+    print ("FUCK")
+    OG_Filename = os.path.splitext(os.path.basename(args["VideoDir"]))[0]
+    args["OutputName"] = OG_Filename + "Test.mkv"
+    dpg.set_value(update_target,  OG_Filename + f" [SBS {args['offset_fg']} {args['offset_bg']} {args['offset_step_size']}].mkv")
+    update_preview()
+    
 def run_script(sender, app_data):
     args["OutputDir"] = os.path.join(args["OutputDirectory"], args["OutputName"])
     print("Running with arguments:")
@@ -104,14 +110,23 @@ dpg.create_viewport(title="PredictAndGenerate UI", width=1600, height=800)
 with dpg.font_registry():
     big_font = dpg.add_font("C:/Windows/Fonts/seguiemj.ttf", 20)  # change to another TTF if missing
 
-def pr(selected_files):
+def InputFileDialogueCallback(selected_files):
     dpg.set_value("VideoDir", selected_files[0])
     args["VideoDir"] = selected_files[0]
     update_preview()
-    
-fd = FileDialog(callback=pr, tag="file_dialog_2", filter_list = [".*", ".mkv", ".mp4", ".avi", ".ts"],show_dir_size=False, modal=True, multi_selection=False, no_resize=False, default_path=".")
+InputFileDialogue = FileDialog(callback=InputFileDialogueCallback, tag="InputFileDialogue",
+                               filter_list = [".*", ".mkv", ".mp4", ".avi", ".ts"],
+                               modal=True, multi_selection=False, no_resize=False, default_path=".")
+
+def OutputFolderDialogueCallback(selected_files):
+    dpg.set_value("OutputDirectory", selected_files[0])
+    args["OutputDirectory"] = selected_files[0]
+    update_preview()
+OutputFolderDialogue = FileDialog(callback=OutputFolderDialogueCallback, tag="OutputFolderDialogue",
+                                  dirs_only = True, show_shortcuts_menu = True, modal=True,  multi_selection=False, no_resize=False, default_path=".")
+#ádasd
 #with dpg.window(label="hi", height=100, width=100):
-#    dpg.add_button(label="fd", callback=fd.show_file_dialog)
+#    dpg.add_button(label="InputFileDialogue", callback=InputFileDialogue.show_file_dialog)
     
 # Directory dialog
 with dpg.file_dialog(directory_selector=True, show=False, callback=select_dir_callback, tag="dir_dialog", width=600, height=400):
@@ -144,17 +159,19 @@ with dpg.window(label="PredictAndGenerate", tag="main_window", width=1580, heigh
                 with dpg.group(horizontal=True):
                     dpg.add_text("Input Video Path")
                     #button_list.append(dpg.add_button(label="Select Video", callback=lambda: open_file_dialog("VideoDir")))
-                    button_list.append(dpg.add_button(label="Select Video", callback=fd.show_file_dialog))
+                    button_list.append(dpg.add_button(label="Select Video", callback=InputFileDialogue.show_file_dialog))
                 dpg.add_input_text(tag="VideoDir", default_value=args["VideoDir"], callback=update_value, user_data="VideoDir", width=-1)
 
                 dpg.add_spacer(width=0, height=10)  # 10 pixels vertical space
                 with dpg.group(horizontal=True):
                     dpg.add_text("Output Folder")
-                    button_list.append(dpg.add_button(label="Select Output Folder", callback=lambda: open_dir_dialog("OutputDirectory")))
+                    #button_list.append(dpg.add_button(label="Select Output Folder", callback=lambda: open_dir_dialog("OutputDirectory")))
+                    button_list.append(dpg.add_button(label="Select Output Folder", callback=OutputFolderDialogue.show_file_dialog))
+                    
                 dpg.add_input_text(tag="OutputDirectory", default_value=args["OutputDirectory"], callback=update_value, user_data="OutputDirectory", width=-1)
                 with dpg.group(horizontal=True):
                     dpg.add_text("Output Video Name")
-                    #button_list.append(dpg.add_button(label="Select Output Name", callback=lambda: open_file_dialog("OutputName")))
+                    button_list.append(dpg.add_button(label="Get Auto Output Name", callback=lambda: auto_update_filename("OutputName")))
                 dpg.add_input_text(tag="OutputName", default_value=args["OutputName"], callback=update_value_video, user_data="OutputName", width=-1)
                 
                 dpg.add_spacer(width=0, height=10)  # 10 pixels vertical space
@@ -182,7 +199,7 @@ with dpg.window(label="PredictAndGenerate", tag="main_window", width=1580, heigh
                 dpg.add_input_int(label="Gpu Count", default_value=args["num_gpu"], callback=update_value, user_data="num_gpu")
                 dpg.add_input_int(label="GPU Workers Count", default_value=args["Num_GPU_Workers"], callback=update_value, user_data="Num_GPU_Workers")
                 dpg.add_input_int(label="Batch Frame Count", default_value=args["Max_Frame_Count"], callback=update_value, user_data="Max_Frame_Count")
-                dpg.add_text("Debug Parameter, don't touch")
+                dpg.add_text("Debug Parameter, don't touch unless you need it.")
                 dpg.add_combo(label="repair_mode", items=["0 - Full", "1 - Rerun no combine", "2 - Combine - Export video", "3 - [Debug] Combine video only, temp.mp4"],
                           default_value="0 - Full",
                           callback=lambda s,a,u: update_value(s,int(a[0]),"repair_mode"), user_data="repair_mode")
@@ -196,12 +213,14 @@ with dpg.window(label="PredictAndGenerate", tag="main_window", width=1580, heigh
                 dpg.add_input_text(tag="DebugDir", default_value=args["DebugDir"], callback=update_value, user_data="DebugDir", width=-1)
 
     dpg.add_separator()
-    dpg.add_text("Command Preview:")
-    dpg.add_input_text(multiline=True, readonly=True, tag="preview_text", width=950, height=80)
+    dpg.add_text("Command Preview (No edit):")
+    dpg.add_input_text(multiline=True, readonly=True, auto_select_all = True, tag="preview_text", width=-1, height=50)
     with dpg.group(horizontal=True):
         dpg.add_button(label="Run Script", callback=run_script, width=200, height=50)
         dpg.add_button(label="Stop Script", callback=stop_script, width=200, height=50)
-    dpg.add_progress_bar(tag="progress", default_value=0.0, width=300)
+        with dpg.group(horizontal=False):
+            dpg.add_text("To view progress, open the debug folder and R E A D")
+            dpg.add_progress_bar(tag="progress", default_value=0.0, width=300)
 
 # Apply BIG font to everything
 dpg.bind_font(big_font)
