@@ -73,7 +73,7 @@ def random_sleep (sleep_length, message = ""):
 def redirrect_stdout (out_path):
     if True:
 	#if sys.stdout is None:
-        out_file = open(out_path, 'w')
+        out_file = open(out_path, 'a+')
         sys.stdout = out_file
         sys.stderr = out_file
         sys.stdout.flush()

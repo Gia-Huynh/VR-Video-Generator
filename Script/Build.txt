@@ -1,0 +1,7 @@
+pyinstaller --noconsole ^
+    --collect-all torch --collect-all torchvision ^
+    --add-data "PredictAndGenerate.py;." ^
+    --add-data "SupportFunction.py;." ^
+    --add-data "file_dialog;file_dialog" ^
+    --add-data "depth_anything_v2;depth_anything_v2" ^
+    UserInterface.py

@@ -1,25 +1,30 @@
 import dearpygui.dearpygui as dpg
 from file_dialog.fdialog import FileDialog
 import subprocess
-import os, psutil
+import os, psutil, webbrowser
 OG_cwd = os.getcwd()
 state = {
     "proc" : None
 }
-args = {
+"""
     "VideoDir": "Videos/Input/Maria Nagai [Trimmed].mp4", #"Original video here"
     "OutputDirectory": "./Videos/Output", #"Output video folder here"
     "OutputName": "KillMe.mkv", #"Output video name here"
     "OutputDir": "Will Be Auto Calculated", #"Output video name here"
-    "SubClipDir": "D:/TEMP/JAV Subclip/",
-    #"VideoDir": "Path to input video",
-    #"OutputDirectory": "Enter output video folder path",
-    #"OutputName": "Output file name [auto end with .mkv]",
-    #"OutputDir": "Will Be Auto Calculated.mkv",
-    #"SubClipDir": "./Subclip",
+    "SubClipDir": "D:/TEMP/Subclip/",
+"""
+args = {
+
+    "VideoDir": "Path to input video",
+    "OutputDirectory": "Enter output video folder path",
+    "OutputName": "Output file name [auto end with .mkv]",
+    "OutputDir": "Will Be Auto Calculated.mkv",
+    "SubClipDir": "./Subclip/",
+    
     "DebugDir": "./Debug/",
+    "encoder_selection": "vits: Small model, faster",
     "encoder": "vitb",
-    "encoder_path": "depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth",
+    "encoder_path": "./depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth",
     "offset_fg": 0.025,
     "offset_bg": -0.01,
     "offset_step_size": 1,
@@ -64,6 +69,18 @@ def update_value_video(sender, app_data, user_data):
     
 def update_preview():
     args["OutputDir"] = os.path.join(args["OutputDirectory"], args["OutputName"])
+    if "vits" in args["encoder_selection"]:
+        args["encoder"] = "vits"
+        args["encoder_path"] = "./depth_anything_v2/checkpoints/depth_anything_v2_vits.pth"
+    elif "vitb" in args["encoder_selection"]:
+        args["encoder"] = "vitb"
+        args["encoder_path"] = "./depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth"
+    elif "vitl" in args["encoder_selection"]:
+        args["encoder"] = "vitl"
+        args["encoder_path"] = "./depth_anything_v2/checkpoints/depth_anything_v2_vitl.pth"
+    else:
+        print ("ERROR: Encoder not found")
+        print (args["encoder_selection"])
     cmd = "python PredictAndGenerate.py " + " ".join(
         [f'--{k} "{v}"' for k, v in args.items() if k not in ["OutputDirectory", "OutputName"]]
     )
@@ -75,7 +92,7 @@ def auto_update_filename (update_target):
     update_preview()
     
 def run_script(sender, app_data):
-    args["OutputDir"] = os.path.join(args["OutputDirectory"], args["OutputName"])
+    update_preview()
     print("Running with arguments:")
     for k, v in args.items():
         print(f"--{k} {v}")
@@ -142,9 +159,9 @@ with dpg.file_dialog(directory_selector=False, show=False, callback=select_file_
     dpg.add_file_extension(".pth", color=(255, 255, 255, 255))
 
 button_list = []
-
+non_important_button_list = []
 with dpg.window(label="PredictAndGenerate", tag="main_window", width=1580, height=780):
-    dpg.add_text("Configure & Run", bullet=True)
+    dpg.add_text(" VR SBS Video Generator UI")
     dpg.add_separator()
 
     with dpg.table(header_row=False, resizable=True, policy=dpg.mvTable_SizingStretchProp, row_background=False):
@@ -154,42 +171,48 @@ with dpg.window(label="PredictAndGenerate", tag="main_window", width=1580, heigh
         with dpg.table_row():
             # LEFT COLUMN
             with dpg.group(horizontal=False):
-                dpg.add_text("Directories / Files")
                 dpg.add_spacer(width=0, height=10)  # 10 pixels vertical space
+                
+                dpg.add_text("Directories / Files")
                 with dpg.group(horizontal=True):
                     dpg.add_text("Input Video Path")
                     #button_list.append(dpg.add_button(label="Select Video", callback=lambda: open_file_dialog("VideoDir")))
                     button_list.append(dpg.add_button(label="Select Video", callback=InputFileDialogue.show_file_dialog))
                 dpg.add_input_text(tag="VideoDir", default_value=args["VideoDir"], callback=update_value, user_data="VideoDir", width=-1)
-
                 dpg.add_spacer(width=0, height=10)  # 10 pixels vertical space
+                
                 with dpg.group(horizontal=True):
                     dpg.add_text("Output Folder")
-                    #button_list.append(dpg.add_button(label="Select Output Folder", callback=lambda: open_dir_dialog("OutputDirectory")))
-                    button_list.append(dpg.add_button(label="Select Output Folder", callback=OutputFolderDialogue.show_file_dialog))
-                    
+                    button_list.append(dpg.add_button(label="Select Destination Folder", callback=OutputFolderDialogue.show_file_dialog)) #lambda: open_dir_dialog("OutputDirectory")
                 dpg.add_input_text(tag="OutputDirectory", default_value=args["OutputDirectory"], callback=update_value, user_data="OutputDirectory", width=-1)
+                dpg.add_spacer(width=0, height=10)  # 10 pixels vertical space
+                
                 with dpg.group(horizontal=True):
                     dpg.add_text("Output Video Name")
-                    button_list.append(dpg.add_button(label="Get Auto Output Name", callback=lambda: auto_update_filename("OutputName")))
+                    button_list.append(dpg.add_button(label="Auto Generate Output Name", callback=lambda: auto_update_filename("OutputName")))
                 dpg.add_input_text(tag="OutputName", default_value=args["OutputName"], callback=update_value_video, user_data="OutputName", width=-1)
-                
                 dpg.add_spacer(width=0, height=10)  # 10 pixels vertical space
+                
                 with dpg.group(horizontal=True):
                     dpg.add_text("Intermediate (Temporarily) subclip directory")
-                    button_list.append(dpg.add_button(label="Select SubClipDir", callback=lambda: open_dir_dialog("SubClipDir")))
+                    non_important_button_list.append(dpg.add_button(label="Select SubClipDir", callback=lambda: open_dir_dialog("SubClipDir")))
                 dpg.add_input_text(tag="SubClipDir", default_value=args["SubClipDir"], callback=update_value, user_data="SubClipDir", width=-1)
-
                 dpg.add_spacer(width=0, height=10)  # 10 pixels vertical space
-                dpg.add_text("Model / Encoder Path")
-                dpg.add_input_text(tag="encoder", default_value=args["encoder"], callback=update_value, user_data="encoder", width=-1)
-                dpg.add_input_text(tag="encoder_path", default_value=args["encoder_path"], callback=update_value, user_data="encoder_path", width=-1)
-                button_list.append(dpg.add_button(label="Select Encoder Path", callback=lambda: open_file_dialog("encoder_path")))
+                
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Model selection")
+                    #non_important_button_list.append(dpg.add_button(label="Select Encoder Path", callback=lambda: open_file_dialog("encoder_path")))
+                dpg.add_combo(tag="encoder_selection", items=["vits: Small model, faster", "vitb: Base model, more consistent", "vitl: Gigantic model (Need download)"],
+                              default_value=args["encoder_selection"], callback=update_value, user_data="encoder_selection", width=-1
+                              )
+                #dpg.add_input_text(tag="encoder", default_value=args["encoder"], callback=update_value, user_data="encoder", width=-1)
+                #dpg.add_input_text(tag="encoder_path", default_value=args["encoder_path"], callback=update_value, user_data="encoder_path", width=-1)
+                
 
             # RIGHT COLUMN
             with dpg.group(horizontal=False):
-                dpg.add_text("Video Parameter")
                 dpg.add_spacer(width=0, height=10)  # 10 pixels vertical space
+                dpg.add_text("Video Parameter")
                 dpg.add_input_float(label="offset foreground", default_value=args["offset_fg"], callback=update_value, user_data="offset_fg")
                 dpg.add_input_float(label="offset background", default_value=args["offset_bg"], callback=update_value, user_data="offset_bg")
                 dpg.add_input_int(label="offset step size", default_value=args["offset_step_size"], callback=update_value, user_data="offset_step_size")
@@ -199,8 +222,9 @@ with dpg.window(label="PredictAndGenerate", tag="main_window", width=1580, heigh
                 dpg.add_input_int(label="Gpu Count", default_value=args["num_gpu"], callback=update_value, user_data="num_gpu")
                 dpg.add_input_int(label="GPU Workers Count", default_value=args["Num_GPU_Workers"], callback=update_value, user_data="Num_GPU_Workers")
                 dpg.add_input_int(label="Batch Frame Count", default_value=args["Max_Frame_Count"], callback=update_value, user_data="Max_Frame_Count")
+                dpg.add_spacer(width=0, height=10)
                 dpg.add_text("Debug Parameter, don't touch unless you need it.")
-                dpg.add_combo(label="repair_mode", items=["0 - Full", "1 - Rerun no combine", "2 - Combine - Export video", "3 - [Debug] Combine video only, temp.mp4"],
+                dpg.add_combo(label="repair_mode", items=["0 - Full, Default", "1 - Rerun from start_frame to end_frame, don't combine", "2 - Combine and export full video with audio", "3 - [Debug] Combine video only, temp.mp4"],
                           default_value="0 - Full",
                           callback=lambda s,a,u: update_value(s,int(a[0]),"repair_mode"), user_data="repair_mode")
                 dpg.add_input_text(label="start_frame", default_value=args["start_frame"], callback=update_value, user_data="start_frame")
@@ -209,33 +233,77 @@ with dpg.window(label="PredictAndGenerate", tag="main_window", width=1580, heigh
                 dpg.add_spacer(width=0, height=10)  # 10 pixels vertical space
                 with dpg.group(horizontal=True):
                     dpg.add_text("Debug Directory")
-                    button_list.append(dpg.add_button(label="Select DebugDir", callback=lambda: open_dir_dialog("DebugDir")))
+                    non_important_button_list.append(dpg.add_button(label="Select Debug Folder", callback=lambda: open_dir_dialog("DebugDir")))
+                    non_important_button_list.append(dpg.add_button(label="View Debug Folder", callback=lambda: os.startfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), args["DebugDir"]))))
+                    
                 dpg.add_input_text(tag="DebugDir", default_value=args["DebugDir"], callback=update_value, user_data="DebugDir", width=-1)
 
     dpg.add_separator()
-    dpg.add_text("Command Preview (No edit):")
-    dpg.add_input_text(multiline=True, readonly=True, auto_select_all = True, tag="preview_text", width=-1, height=50)
     with dpg.group(horizontal=True):
-        dpg.add_button(label="Run Script", callback=run_script, width=200, height=50)
-        dpg.add_button(label="Stop Script", callback=stop_script, width=200, height=50)
+        dpg.add_text("Command Preview:\n     (No edit)")
+        dpg.add_input_text(multiline=True, readonly=True, auto_select_all = True, tag="preview_text", width=-1, height=50)
+    with dpg.group(horizontal=True):
         with dpg.group(horizontal=False):
-            dpg.add_text("To view progress, open files in debug folder, haven't dev this yet")
-            dpg.add_progress_bar(tag="progress", default_value=0.0, width=500)
-        dpg.add_button(label="Verify Integrity (WIP don't press)", callback=None, width=400, height=50)
+            with dpg.group(horizontal=True):
+                green_button = dpg.add_button(label="Run Script", callback=run_script, width=200, height=50)
+                red_button = dpg.add_button(label="Stop Script", callback=stop_script, width=200, height=50)
+            dpg.add_button(label="Verify Integrity (Work In Progress)", callback=None, width=408, height=50)
+        with dpg.group(horizontal=False):
+            dpg.add_text("To view progress, open files in debug folder")
+            button_list.append(dpg.add_button(label="View Debug Folder", callback=lambda: os.startfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), args["DebugDir"]))))
+                
+        vertical_line = dpg.add_slider_float(vertical  = True, no_input = True, width = 2, height = -1, default_value=0.0, format=" ") #dearpygui have no vertical line lol
+        with dpg.group(horizontal=False):
+            dpg.add_text("This video is brought to you by...\nOur sponsors:")
+            with dpg.group(horizontal=True):
+                button_list.append(dpg.add_button(label="Gimme a job", callback=lambda:webbrowser.open("https://gia-huynh.github.io/"), width=200, height=50))
+                button_list.append(dpg.add_button(label="Steam Items\n   Donation", callback=lambda:webbrowser.open("https://steamcommunity.com/tradeoffer/new/?partner=243084914&token=Wd4eyX_8"), width=200, height=50))
+    dpg.add_separator()
+    dpg.add_text("Attribution: FileDialog was used for the UI, Depth-Anything-V2 and their pretrain base/small models for the depth estimation.")
+    
+vertical_line_theme_parent = dpg.add_theme()
+with dpg.theme_component(dpg.mvAll, parent=vertical_line_theme_parent):
+    dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (128,128,128,255))
+    dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (128,128,128,255))
+    dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (128,128,128,255))
+    dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (128,128,128,255))
+dpg.bind_item_theme(vertical_line, vertical_line_theme_parent)
 
 # Apply BIG font to everything
 dpg.bind_font(big_font)
-# --- create button theme ---
+
+#Normal button theme
 with dpg.theme() as button_theme:
     with dpg.theme_component(dpg.mvButton):
-        dpg.add_theme_color(dpg.mvThemeCol_Button, (100, 149, 237))        # normal
+        dpg.add_theme_color(dpg.mvThemeCol_Button, (100, 140, 220))        # normal
         dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (65, 105, 225))  # hover
         dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (25, 25, 112))    # pressed
-
-# --- apply the theme to all buttons ---
 for btn in button_list:
     dpg.bind_item_theme(btn, button_theme)
+
+#Unimportant button theme
+with dpg.theme() as non_important_button_theme:
+    with dpg.theme_component(dpg.mvButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Button, (80, 100, 150))        # normal
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (65, 105, 225))  # hover
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (25, 25, 112))    # pressed
+for btn in non_important_button_list:
+    dpg.bind_item_theme(btn, non_important_button_theme)
     
+#Red + Green button theme
+with dpg.theme() as green_button_theme:
+    with dpg.theme_component(dpg.mvButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Button, (20, 140, 20))    # normal
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (20, 200, 20))    # hover  
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (0, 140, 0))    # pressed
+dpg.bind_item_theme(green_button, green_button_theme)
+with dpg.theme() as red_button_theme:
+    with dpg.theme_component(dpg.mvButton):
+        dpg.add_theme_color(dpg.mvThemeCol_Button, (140, 20, 20))    # normal
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (200, 20, 20))    # hover  
+        dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (140, 0, 0))    # pressed
+dpg.bind_item_theme(red_button, red_button_theme)
+
 update_preview()
 dpg.setup_dearpygui()
 dpg.show_viewport()

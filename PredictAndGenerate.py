@@ -2,15 +2,13 @@
 from line_profiler import LineProfiler
 #Basic system import
 import os, sys, time, random, traceback, gc, math, argparse
-import cv2, numpy as np
-import torch
+import numpy as np, cv2, torch
 from torch.amp import autocast #For FP16
-from torchvision.transforms.v2.functional import gaussian_blur_image, gaussian_blur
+from torchvision.transforms.v2.functional import gaussian_blur
 from depth_anything_v2.dpt import DepthAnythingV2
 #Multiprocess libraries
 import subprocess, queue
 import multiprocessing as mp
-from multiprocessing import shared_memory
 from multiprocessing import Process, Queue, set_start_method
 #Support Functions
 import SupportFunction as SpF
@@ -19,28 +17,24 @@ from SupportFunction import (get_length, get_cutoff, get_ffmpeg_config, load_mod
                              dump_line_profile_to_csv, remove_all_file, random_sleep,
                              create_folder_if_not_exist)
 
-#import pystuck
-#pystuck.run_server()
-#pystuck.run_server(port=)
-#pystuck_port = 10000
 print ("Import done")
 parser = argparse.ArgumentParser()
 parser.add_argument('--DebugDir',   type=str,
-                                    default="Debug/")
+                                    default="./Debug/")
 parser.add_argument('--SubClipDir', type=str,
-                                    default="D:/TEMP/JAV Subclip/")
+                                    default="./Subclip/")
 parser.add_argument('--VideoDir',   type=str,
-                                    default="Videos/Input/Original/Maria Nagai.mp4")
+                                    default="./Videos/Input/Original/Maria Nagai.mp4")
 parser.add_argument('--OutputDir',  type=str,
                                     default="DeleteThis.mkv")
 parser.add_argument('--encoder',    type=str,
                                     default='vits')
 parser.add_argument('--encoder_path',type=str,
-                                    default='depth_anything_v2/checkpoints/depth_anything_v2_vits.pth')
+                                    default='./depth_anything_v2/checkpoints/depth_anything_v2_vits.pth')
 parser.add_argument('--offset_fg',  type=float,
-                                    default=0.02) #0.0125 chưa đủ đô
+                                    default=0.025)
 parser.add_argument('--offset_bg',  type=float,
-                                    default=-0.05) #-0.0225 chưa đủ đô
+                                    default=-0.01)
 parser.add_argument('--offset_step_size',  type=int,
                                     default=1) #Step for offset cutoff
 parser.add_argument('--Num_Workers',type=int,
@@ -81,7 +75,7 @@ end_frame = args.end_frame
 repair_mode = args.repair_mode
 
 create_folder_if_not_exist (DebugDir)
-#create_folder_if_not_exist (SubClipDir)
+create_folder_if_not_exist (SubClipDir)
 #create_folder_if_not_exist (OutputDir)
 
 if (offset_bg * offset_fg > 0):
@@ -98,7 +92,6 @@ ffmpeg_device = 'cpu'
 video_length, ffmpeg_config = SpF.get_ffmpeg_config(VideoDir, ffmpeg_device)
 # Initialize logging
 def inference_worker_backup (in_queue_list, out_queue_list, notify_queue_list, DEVICE):
-    #device = torch.device('cuda:0')
     print_flush (encoder, encoder_path, DEVICE)
     #vits, vitb, vitl each output different depth img scale
     if encoder == 'vits': #depth.max() around 8-9
@@ -202,8 +195,6 @@ class LeftSBSProcessor:
         
     def get_depth (self, raw_img, job_queue, result_queue):
         self.last_frame = 1
-        #self.gpu_notify_queue.put((self.gpu_notify_worker_idx,))
-        #job_queue.put((raw_img,)) #Khong can stackblur raw_img vi img cung bi resize ve 518 default cua DepthAnything
         depth = result_queue.get().to(torch.device('cuda'), non_blocking=True)
         depth_og_backup = depth.clone()        
         #Depth temporal smoothing
@@ -304,19 +295,19 @@ def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_c
     try:
         for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
+            if (raw_img is None):
+                print_flush ("Frame read error at i = ",i,", adding black frame to compensate.")
+                raw_img = np.zeros((height, width, 3), dtype = np.uint8)
             if (i == begin): #Initialization
                 sbsObj.add_frame(raw_img[:,:,[2,1,0]], job_queue, result_queue)
                 last_img = raw_img
             else:  #Normal run
-                if (raw_img is not None): 
-                    sbsObj.add_frame(raw_img[:,:,[2,1,0]], job_queue, result_queue) #Add frame after append is worse
-                    FrameList.append(sbsObj.left_side_sbs(last_img[:,:,[2,1,0]], job_queue, result_queue))
-                    last_img = raw_img
-                else: #Frame read error?
-                    FrameList.append(np.zeros((height, 2*width, 3), dtype = np.uint8))
-                    print_flush ("Frame read error at i = ",i,", adding black frame to compensate.")
-            
-
+                #if (raw_img is not None): 
+                sbsObj.add_frame(raw_img[:,:,[2,1,0]], job_queue, result_queue) #Add frame after append is worse
+                FrameList.append(sbsObj.left_side_sbs(last_img[:,:,[2,1,0]], job_queue, result_queue))
+                last_img = raw_img
+                #else: #Frame read error?
+                #    FrameList.append(np.zeros((height, 2*width, 3), dtype = np.uint8))
             if (i == min (end, video_length)-1): #Final Run
                 FrameList.append(sbsObj.left_side_sbs(raw_img[:,:,[2,1,0]], job_queue, result_queue))
             torch.cuda.empty_cache() #Memory issue
@@ -359,7 +350,8 @@ def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, max_frame_c
         print_flush(f"[ERROR] {begin} failed at frame {i}")
         print_flush(traceback.format_exc())
         #raise e
-        dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
+        if profiler is not None:
+            dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
         random_sleep ((9,10), "Worker error, sleep then exit")
         return 0
 def we_ballin ():
@@ -406,7 +398,8 @@ def we_ballin ():
         w.join()
     
 if __name__ == "__main__":
-    remove_all_file (DebugDir)
+    if (repair_mode != 1): #Continue mode   
+        remove_all_file (DebugDir)
     if (repair_mode == 0):
         remove_all_file (SubClipDir)
         
