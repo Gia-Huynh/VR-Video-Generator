@@ -21,7 +21,7 @@ args = {
     "encoder": "vitb",
     "encoder_path": "depth_anything_v2/checkpoints/depth_anything_v2_vitb.pth",
     "offset_fg": 0.025,
-    "offset_bg": -0.004,
+    "offset_bg": -0.01,
     "offset_step_size": 1,
     "Num_Workers": 6,
     "num_gpu": 1,
@@ -69,10 +69,9 @@ def update_preview():
     )
     dpg.set_value("preview_text", cmd)
 def auto_update_filename (update_target):
-    print ("FUCK")
     OG_Filename = os.path.splitext(os.path.basename(args["VideoDir"]))[0]
     args["OutputName"] = OG_Filename + "Test.mkv"
-    dpg.set_value(update_target,  OG_Filename + f" [SBS {args['offset_fg']} {args['offset_bg']} {args['offset_step_size']}].mkv")
+    dpg.set_value(update_target,  OG_Filename + f" [SBS {args['offset_fg']:.3f} {args['offset_bg']:.3f} {args['offset_step_size']}].mkv")
     update_preview()
     
 def run_script(sender, app_data):
@@ -114,6 +113,7 @@ def InputFileDialogueCallback(selected_files):
     dpg.set_value("VideoDir", selected_files[0])
     args["VideoDir"] = selected_files[0]
     update_preview()
+    auto_update_filename("OutputName")
 InputFileDialogue = FileDialog(callback=InputFileDialogueCallback, tag="InputFileDialogue",
                                filter_list = [".*", ".mkv", ".mp4", ".avi", ".ts"],
                                modal=True, multi_selection=False, no_resize=False, default_path=".")
@@ -219,8 +219,9 @@ with dpg.window(label="PredictAndGenerate", tag="main_window", width=1580, heigh
         dpg.add_button(label="Run Script", callback=run_script, width=200, height=50)
         dpg.add_button(label="Stop Script", callback=stop_script, width=200, height=50)
         with dpg.group(horizontal=False):
-            dpg.add_text("To view progress, open the debug folder and R E A D")
-            dpg.add_progress_bar(tag="progress", default_value=0.0, width=300)
+            dpg.add_text("To view progress, open files in debug folder, haven't dev this yet")
+            dpg.add_progress_bar(tag="progress", default_value=0.0, width=500)
+        dpg.add_button(label="Verify Integrity (WIP don't press)", callback=None, width=400, height=50)
 
 # Apply BIG font to everything
 dpg.bind_font(big_font)
