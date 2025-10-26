@@ -9,7 +9,9 @@ Total number of nut busted:  ![Total number of nut busted: ](https://img.shields
 - Lightweight and easy to use
 
 ## System Requirements
+
 | 			 | Theoretical Bare Minimum   | Tested System 	| Note per components |
+|:---------|:-----------------------|:-------------|:------------------|
 | Gpu 		 | Nvidia 2060, 1650Ti, T400  | 2080 Ti		 	| Need half-precision (fp16) support, so Pascal and older gpu is out of the question|
 | Cpu 		 | Anything 				  | Amd Ryzen 9 5950X| Used for video encoding only, so no real "bare minimum" here|
 | Ram 		 | 16Gb Ram 				  | 64Gb 		 	| Check FAQ section below for Ram and Gpu Vram issue  |
