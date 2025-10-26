@@ -173,3 +173,4 @@ input_list.txt
 *.mkv
 *.MOV
 *.pth
+/file_dialog/.git_backup
