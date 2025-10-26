@@ -37,8 +37,8 @@ pip install -r requirements.txt
 | Depth-Anything-V2-Large | 335.3M | [Download](https://huggingface.co/depth-anything/Depth-Anything-V2-Large/resolve/main/depth_anything_v2_vitl.pth?download=true) |
 
 Generally, the larger the model, the more consistent it will be frame-to-frame, though will take more vram and slightly longer to run, Large model 2.5x the total time compared to Base from my testing.  
-4. Run:  
-```python UserInterface.py```
+
+4. Run: ```python UserInterface.py```
 
 ## Common Issue/FAQ
 ### Q: Issue with Ram / Out of Memory
