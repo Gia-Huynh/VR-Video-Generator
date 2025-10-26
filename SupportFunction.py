@@ -4,10 +4,10 @@ import cv2
 import random, time, sys, shutil, os
 from depth_anything_v2.dpt import DepthAnythingV2
 import subprocess
-from line_profiler import LineProfiler
+#from line_profiler import LineProfiler
+#import inspect
 import os
 import csv
-import inspect
 from pathlib import Path
 
 def dump_line_profile_to_csv(profiler, filename="line_profile_output.csv"):

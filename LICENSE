@@ -1,21 +1,56 @@
-MIT License
+# License Overview
 
-Copyright (c) 2025 GasTheWoods
+This project contains multiple components under different licenses:
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+---
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## 1. This Project's Code
+**License:** Creative Commons Attribution 4.0 International (CC BY 4.0)  
+You are free to:
+- Share — copy and redistribute the material in any medium or format
+- Adapt — remix, transform, and build upon the material
+- Even for commercial purposes
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+**Under the following terms:**
+- **Attribution required:** For use or redistribution, you must give appropriate credit as follows:  
+```Author: [My Name]
+Author contact: [My website]
+Source: [Repo URL]```
+
+- No additional restrictions — You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits.
+
+---
+
+## 2. FileDialog Library
+**License:** MIT License  
+Permission is granted to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies. See the original MIT License included in the FileDialog library.
+
+---
+
+## 3. Depth-Anything-V2 Source Code
+**License:** Apache License 2.0  
+- Minor modifications were made by [Your Name].  
+- Follow Apache-2.0 requirements for attribution and NOTICE file if redistributed.  
+- The original Apache-2.0 license text can be found [here](https://www.apache.org/licenses/LICENSE-2.0).
+
+---
+
+## 4. Depth-Anything-V2 Model Weights
+**License:** Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)  
+- Not included in this repository; users must download separately.  
+- Non-commercial use only.
+
+---
+
+## Summary
+- **This project:** CC BY 4.0 (attribution required)  
+- **FileDialog:** MIT  
+- **Depth-Anything-V2 source and small weight:** Apache-2.0  
+- **Depth-Anything-V2 base and large weights:** CC BY-NC 4.0 (manual download, non-commercial)
+
+---
+
+**Attribution requirement:** If you use or redistribute this project (including commercially), you must give appropriate credit as follows:  
+```Author: [My Name]
+Author contact: [My website]
+Source: [Repo URL]```

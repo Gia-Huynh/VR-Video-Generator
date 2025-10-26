@@ -1,4 +1,26 @@
-pyinstaller --noconsole ^
+cd ../.. &
+pyinstaller --noconfirm PredictAndGenerate.spec &
+cd dist/PredictAndGenerate &
+PredictAndGenerate.exe --VideoDir "L:\JAV Segmentation 2025\Videos\Input\Maria Nagai [Trimmed].mp4" --OutputDir "L:\JAV Segmentation 2025\Videos\Output\Maria Nagai [Trimmed] FUCKYEAH.mkv" --SubClipDir "D:/TEMP/Subclip/" --DebugDir "./Debug/" --encoder "vits" --encoder_path "L:\JAV Segmentation 2025\depth_anything_v2\checkpoints\depth_anything_v2_vits.pth" --offset_fg "0.025" --offset_bg "-0.01" --offset_step_size "1" --Num_Workers "6" --num_gpu "1" --Num_GPU_Workers "2" --Max_Frame_Count "30" --start_frame "0" --end_frame "999999999999999" --repair_mode "0"
+
+
+#Backup
+pyinstaller --paths=depth_anything_v2 --hidden-import=xformers --noconfirm PredictAndGenerate.py
+pyinstaller --paths=depth_anything_v2 --hidden-import=torchvision.transforms.v2.functional ^
+ --noconfirm PredictAndGenerate.py
+
+
+
+pyinstaller ^
+    --add-data "PredictAndGenerate.py;." ^
+    --add-data "SupportFunction.py;." ^
+    --add-data "file_dialog;file_dialog" ^
+    --add-data "depth_anything_v2;depth_anything_v2" ^
+    UserInterface.py
+	
+	
+	#BACKUP
+pyinstaller ^
     --collect-all torch --collect-all torchvision ^
     --add-data "PredictAndGenerate.py;." ^
     --add-data "SupportFunction.py;." ^

@@ -163,9 +163,7 @@ cython_debug/
 /*/*.mp4
 "*.mp4" 
 "/OLD" 
-"/depth_anything_v2" 
 /Videos 
-/depth_anything_v2 
 /Debug
 /Debug
 *.mp4
@@ -174,3 +172,4 @@ DockerSex/Check_Clips.py
 input_list.txt
 *.mkv
 *.MOV
+*.pth
