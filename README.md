@@ -1,6 +1,6 @@
 # VR Video Generator
-Create Side-by-side (SBS) video from normal video, for use in VR glasses.
-![Total number of nut busted: ](https://img.shields.io/github/stars/Gia-Huynh/VR-Video-Generator)
+Create Side-by-side (SBS) video from normal video, for use in VR glasses.  
+Total number of nut busted:  ![Total number of nut busted: ](https://img.shields.io/github/stars/Gia-Huynh/VR-Video-Generator)  
 ![Left and Right alternating](GithubResources/ezgif.com-webp-maker.webp "Demo gif with left and right eye image alternating")
 
 ## Features
@@ -21,19 +21,22 @@ Create Side-by-side (SBS) video from normal video, for use in VR glasses.
 git clone https://github.com/Gia-Huynh/VR-Video-Generator
 ```
 2. Install dependencies:
-```pip install -r requirements.txt
+```bash
+pip install -r requirements.txt
 ```
 3. Download Depth-Anything-V2 model weights manually and place in the ```depth_anything_v2\checkpoints``` folder, from these link:
+
 | Model | Params | Checkpoint |
 |:-|-:|:-:|
 | Depth-Anything-V2-Small | 24.8M | [Download](https://huggingface.co/depth-anything/Depth-Anything-V2-Small/resolve/main/depth_anything_v2_vits.pth?download=true) |
 | Depth-Anything-V2-Base | 97.5M | [Download](https://huggingface.co/depth-anything/Depth-Anything-V2-Base/resolve/main/depth_anything_v2_vitb.pth?download=true) |
 | Depth-Anything-V2-Large | 335.3M | [Download](https://huggingface.co/depth-anything/Depth-Anything-V2-Large/resolve/main/depth_anything_v2_vitl.pth?download=true) |
+
 Generally, the larger the model, the more consistent it will be frame-to-frame, though will take more vram and slightly longer to run, Large model 2.5x the total time compared to Base from my testing. 
 4. Run:
 ```python UserInterface.py```
 
-##Common Issue/FAQ
+## Common Issue/FAQ
 ### Q: Issue with Ram / Out of Memory
 A: Reduce the ```Batch Frame Count``` value if out of ram, increase pagefile if it takes only less than 50% ram but you still got OOM issue.
 ### Q: Gpu not enough Vram
