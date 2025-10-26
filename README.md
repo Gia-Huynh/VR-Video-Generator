@@ -15,9 +15,7 @@ Total number of nut busted:  ![Total number of nut busted: ](https://img.shields
 | Ram 		 | 16Gb Ram 				  | 64Gb 		 	| Check FAQ section below for Ram and Gpu Vram issue  |
 | HDD		 | 5Gb per hour of 1080p video| No ssd needed   | Prefer hdd than ssd because this writes a lot  |
 
-## Quick Install 
-Download the lastest [release](https://github.com/Gia-Huynh/VR-Video-Generator/releases), then extract and run UserInterface.exe
-## Running from source
+## Installation
 1. Clone the repository:
 ```bash
 git clone https://github.com/Gia-Huynh/VR-Video-Generator
@@ -34,8 +32,8 @@ pip install -r requirements.txt
 | Depth-Anything-V2-Base | 97.5M | [Download](https://huggingface.co/depth-anything/Depth-Anything-V2-Base/resolve/main/depth_anything_v2_vitb.pth?download=true) |
 | Depth-Anything-V2-Large | 335.3M | [Download](https://huggingface.co/depth-anything/Depth-Anything-V2-Large/resolve/main/depth_anything_v2_vitl.pth?download=true) |
 
-Generally, the larger the model, the more consistent it will be frame-to-frame, though will take more vram and slightly longer to run, Large model 2.5x the total time compared to Base from my testing.  
-4. Run:  
+Generally, the larger the model, the more consistent it will be frame-to-frame, though will take more vram and slightly longer to run, Large model 2.5x the total time compared to Base from my testing. 
+4. Run:
 ```python UserInterface.py```
 
 ## Common Issue/FAQ
