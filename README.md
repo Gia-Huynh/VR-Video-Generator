@@ -3,11 +3,6 @@ Create Side-by-side (SBS) video from normal video, for use in VR glasses.
 Total number of nut busted:  ![Total number of nut busted: ](https://img.shields.io/github/stars/Gia-Huynh/VR-Video-Generator)  
 ![Left and Right alternating](GithubResources/ezgif.com-webp-maker.webp "Demo gif with left and right eye image alternating")
 
-## Features
-- Converts standard videos to VR-ready SBS format
-- Supports multiple resolutions
-- Lightweight and easy to use
-
 ## System Requirements
 
 | 			 | Theoretical Bare Minimum   | Tested System 	| Note per components |
