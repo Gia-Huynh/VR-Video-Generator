@@ -6,7 +6,7 @@ import os
 import time
 import psutil
 import platform
-from glob import glob
+import glob
 
 
 class FileDialog:
@@ -194,7 +194,7 @@ class FileDialog:
         except FileNotFoundError:
             # Search for the directory in the user's home folder
             search_path = os.path.expanduser("~/*/" + directory_name)
-            directory_path = glob(search_path)
+            directory_path = glob.glob(search_path)
             if directory_path:
                 try:
                     # Test access to the found path
@@ -786,9 +786,8 @@ class FileDialog:
                         documents = self.get_directory_path("Documents")
                         musics = self.get_directory_path("Music")
                         videos = self.get_directory_path("Videos")
-
                         def _add_shortcut(icon, path, label):
-                            if path is not None or os.path.exists(path):
+                            if path is not None and os.path.exists(path):
                                 with dpg.group(horizontal=True):
                                     dpg.add_image(icon)
                                     dpg.add_menu_item(label=label, callback=lambda p=path: self.chdir(p))

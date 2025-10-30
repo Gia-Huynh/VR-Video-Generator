@@ -71,3 +71,7 @@ nên test thử với 0.02
 và thằng owl mặc định nó không dịch background
 
 22/10: Somehow chọn flip L-R thì lại ra cực ổn áp với 0.025 -0.004, nổ cu, nên mình phải flip cái left_side_sbs trở lại.
+
+28/10: MÌNH ĐANG HARD CODED PATH TO MODEL.
+Thêm lỗi Triton not available.
+Thêm filedialog phải check điều kiện path to pictures folder is in OneDrive
