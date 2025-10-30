@@ -56,5 +56,8 @@ Apache components: Depth-Anything-V2 source code (slightly modified), and Depth-
 Depth-Anything-V2-base/large weights: CC BY-NC 4.0 (user downloads separately).
 
 Attribution required if you use or redistribute this project:
-Author: [Your Name]  
-Source: [Repo URL]
+```
+Author: Gia Huynh
+Author contact: giahuynh.thiet@gmail.com, https://gia-huynh.github.io/
+Source: https://github.com/Gia-Huynh/VR-Video-Generator/tree/master
+```
