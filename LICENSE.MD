@@ -13,9 +13,11 @@ You are free to:
 
 **Under the following terms:**
 - **Attribution required:** For use or redistribution, you must give appropriate credit as follows:  
-```Author: [My Name]
+```
+Author: [My Name]
 Author contact: [My website]
-Source: [Repo URL]```
+Source: [Repo URL]
+```
 
 - No additional restrictions — You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits.
 
