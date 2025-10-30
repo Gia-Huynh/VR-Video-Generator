@@ -1,6 +1,9 @@
 # VR Video Generator
-Create Side-by-side (SBS) video from normal video, for use in VR glasses.  
+Create Side-by-side (SBS) video from normal video to give you an illusion of depth, for use in VR glasses.  
+Available in source code and compiled exe file for ease of use, with Graphic User Interface.
+  
 Total number of nut busted:  ![Total number of nut busted: ](https://img.shields.io/github/stars/Gia-Huynh/VR-Video-Generator)  
+  
 ![Left and Right alternating](GithubResources/ezgif.com-webp-maker.webp "Demo gif with left and right eye image alternating")
 Photo by [Fadhil Abhimantra](https://unsplash.com/@fabhimantra?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText) on [Unsplash](https://unsplash.com/photos/eagle-hunters-in-traditional-attire-converse-on-horseback-vV3ovPQAlmc?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText)
       
