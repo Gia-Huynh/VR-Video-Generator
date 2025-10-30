@@ -45,8 +45,6 @@ A: Reduce the ```Batch Frame Count``` value if out of ram, increase pagefile if 
 ### Q: Gpu not enough Vram
 A: Drop Gpu Worker Count -> Choose smaller model -> Drop Workers Count -> Increase ```offset step size``` to 2 (which may create undesirable banding effect).  
 Gpu Vram usage will increase with higher video resolution, higher "offset foreground", "offset background" values, if it skyrocketed, consider Increase ```offset step size``` to 2 first to see if it's manageable before testing anything else.  
-### Q: Bigger offset foreground/background value
-A: May increase vram usage by quite a lot, so you may need to Increase ```offset step size``` to 2.
 ### Q: Performance Tuning Note:
 A: From my quick testing I found that increasing Worker Count larger than 6-8 does not help my running time much (maybe cpu sucks, or ffmpeg config is too hard for my cpu), for 4 workers or below you only need 1 gpu worker, for 6 workers having only 1 gpu workers compared to 2 does make a small difference in time.
 ### Q: Debugging Issue:
