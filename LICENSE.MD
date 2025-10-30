@@ -1,5 +1,4 @@
 # License Overview
-
 This project contains multiple components under different licenses:
 
 ---
@@ -14,9 +13,9 @@ You are free to:
 **Under the following terms:**
 - **Attribution required:** For use or redistribution, you must give appropriate credit as follows:  
 ```
-Author: [My Name]
-Author contact: [My website]
-Source: [Repo URL]
+Author: Gia Huynh
+Author contact: giahuynh.thiet@gmail.com, https://gia-huynh.github.io/
+Source: https://github.com/Gia-Huynh/VR-Video-Generator/tree/master
 ```
 
 - No additional restrictions — You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits.
@@ -31,7 +30,7 @@ Permission is granted to use, copy, modify, merge, publish, distribute, sublicen
 
 ## 3. Depth-Anything-V2 Source Code
 **License:** Apache License 2.0  
-- Minor modifications were made by [Your Name].  
+- Minor modifications were made by Gia Huynh.  
 - Follow Apache-2.0 requirements for attribution and NOTICE file if redistributed.  
 - The original Apache-2.0 license text can be found [here](https://www.apache.org/licenses/LICENSE-2.0).
 
@@ -52,7 +51,4 @@ Permission is granted to use, copy, modify, merge, publish, distribute, sublicen
 
 ---
 
-**Attribution requirement:** If you use or redistribute this project (including commercially), you must give appropriate credit as follows:  
-```Author: [My Name]
-Author contact: [My website]
-Source: [Repo URL]```
+(Yes I fking ChatGPT this shit)
