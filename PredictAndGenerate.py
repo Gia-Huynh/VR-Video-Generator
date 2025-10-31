@@ -60,7 +60,7 @@ def inference_worker (in_queue_list, out_queue_list, notify_queue_list, DEVICE, 
     redirrect_stdout(args_god.DebugDir + f"inference_worker_{os.getpid()}.txt")
     inference_worker_nested(in_queue_list, out_queue_list, notify_queue_list, DEVICE)
 
-class LeftSBSProcessor:
+class SbsProcessor:
     def __init__(self, gpu_notify_queue, gpu_notify_worker_idx, args_god, debug_config = [None]):
         self.debug_filePrefix = debug_config [0]
         #gpu_woker_notification
@@ -82,12 +82,17 @@ class LeftSBSProcessor:
         #Persistent variable
         self.args_god = args_god
         self.sigmaboi = 3
-        self.offset_step_size = args_god.offset_step_size
         self.last_depth_flag = True
         self.last_depth = None
         self.last_frame = None
         self.print_once = False
         self.last_offset_range = None
+        
+        #get_cutoff related variable
+        self.offset_step_size = self.args_god.offset_step_size
+        self.offset_bg = self.args_god.offset_bg
+        self.offset_fg = self.args_god.offset_fg
+        
         #huge memory tensor, keeping it to reuse later.
         self.gay_tensor_1 = None
         self.gay_tensor_2 = None
@@ -95,17 +100,17 @@ class LeftSBSProcessor:
         self.non_zero_indices = None
     def get_cutoff (self, depth):
         limit_step = math.ceil(depth.max())
-        offset_range = [self.args_god.offset_bg * depth.shape[0] * limit_step/14, #Divided by 14 to normalize
-                        self.args_god.offset_fg * depth.shape[0] * limit_step/14]
+        offset_range = [self.offset_bg * depth.shape[0] * limit_step/14, #Divided by 14 to normalize
+                        self.offset_fg * depth.shape[0] * limit_step/14]
         if self.last_offset_range != None:
             offset_range[0] = (self.last_offset_range[0] + offset_range[0])/2
             offset_range[1] = (self.last_offset_range[1] + offset_range[1])/2
         self.last_offset_range = offset_range
         cutoff_list = []
-        for i in range (round(offset_range[0]), 0, self.offset_step_size): #(...,0, 2) Cai nay giup save 20% time, 550 phut xuong 450 phut
+        for i in range (round(offset_range[0]), 0, self.offset_step_size):
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         cutoff_list.append ((0 - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
-        for i in range (1, round(offset_range[1]), self.offset_step_size): #What's in front of you should not be coarse
+        for i in range (1, round(offset_range[1]), self.offset_step_size):
             cutoff_list.append ((i - offset_range[0]) / (0.00001+offset_range[1] - offset_range[0]) * (0.00001+limit_step))
         cutoff_list.append (limit_step)
         cutoff_list = sorted (cutoff_list)
@@ -126,17 +131,16 @@ class LeftSBSProcessor:
     def get_depth (self, raw_img, job_queue, result_queue):
         self.last_frame = 1
         depth = result_queue.get().to(torch.device('cuda'), non_blocking=True)
-        depth_og_backup = depth.clone()        
+        depth_og_backup = depth.clone()
+        while (len(self.depth_list)<self.depth_dampening_count): #Fill in if empty
+            self.depth_list.append(depth.clone())        
         #Depth temporal smoothing
-        while (len(self.depth_list)<self.depth_dampening_count): #If empty starts smoothing
-            self.depth_list.append(depth.clone())
         t = self.depth_dampening_initial_value
         depth*=self.depth_dampening_original_ratio
         for i in range (len(self.depth_list)-1, -1, -1):
             depth += self.depth_list[i]*t
             t = t*self.depth_dampening_ratio
         del self.depth_list[0]
-        #torch.cuda.empty_cache()
         self.depth_list.append (depth_og_backup)        #self.depth_list[-1] = depth.clone() #DEBUG ONLY
         return depth
     def gpu_roll (self, img, shift, axis):  #Same input signature as np.roll to ensure replacability
@@ -148,18 +152,9 @@ class LeftSBSProcessor:
         for i in offset_list:
             result.append (torch.roll (img_gpu, shifts=i, dims=axis)[None, :]) #.unsqueeze(0)
         result = torch.cat(result, dim=0)  # stack on GPU
-        return result #return result.cpu().numpy(), img_gpu
-    def tensor_mem_gb(self, t):
-        if torch.is_tensor(t):
-            return t.element_size() * t.nelement() / (1024**3)
-        elif isinstance(t, (list, tuple)):
-            return sum(tensor_mem_gb(x) for x in t if torch.is_tensor(x))
-        elif isinstance(t, dict):
-            return sum(tensor_mem_gb(x) for x in t.values() if torch.is_tensor(x))
-        else:
-            return 0
+        return result
     
-    def left_side_sbs(self, raw_img, job_queue, result_queue): #More like right_side_sbs now
+    def left_side_sbs(self, raw_img, job_queue, result_queue):
         img_gpu = torch.from_numpy(raw_img).to(torch.device('cuda'), non_blocking=True)
         depth = self.get_depth(raw_img, job_queue, result_queue) #Bottleneck here
         #Initialization
@@ -211,7 +206,7 @@ def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, args_god, f
     gpu_notify_worker_idx = gpu_notify_list[1]
     cap, fps, video_length, width, height = load_and_set_video (args_god.VideoDir, begin)
     total_step = (min (end, video_length) - begin)
-    sbsObj = LeftSBSProcessor(gpu_notify_queue, gpu_notify_worker_idx, args_god, [(args_god.DebugDir + str (begin//(end-begin))+'_' + str(begin))])
+    sbsObj = SbsProcessor(gpu_notify_queue, gpu_notify_worker_idx, args_god, [(args_god.DebugDir + str (begin//(end-begin))+'_' + str(begin))])
     
     print_flush ("Worker begin from ",begin," to ",end, "\n","video length: ", get_length (args_god.VideoDir), "frame count: ",video_length, ", begin and end: ",begin, end)  
     begin_time = time.time()
@@ -226,31 +221,24 @@ def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, args_god, f
         for i in range (begin, min (end, video_length)):
             _, raw_img = cap.read()
             if (raw_img is None):
-                print_flush ("Frame read error at i = ",i,", adding black frame to compensate.")
+                print_flush ("Frame read error at i = ",i,", using black frame to compensate.")
                 raw_img = np.zeros((height, width, 3), dtype = np.uint8)
             if (i == begin): #Initialization
                 sbsObj.add_frame(raw_img[:,:,[2,1,0]], job_queue, result_queue)
                 last_img = raw_img
             else:  #Normal run
-                #if (raw_img is not None): 
                 sbsObj.add_frame(raw_img[:,:,[2,1,0]], job_queue, result_queue) #Add frame after append is worse
                 FrameList.append(sbsObj.left_side_sbs(last_img[:,:,[2,1,0]], job_queue, result_queue))
                 last_img = raw_img
-                #else: #Frame read error?
-                #    FrameList.append(np.zeros((height, 2*width, 3), dtype = np.uint8))
             if (i == min (end, video_length)-1): #Final Run
                 FrameList.append(sbsObj.left_side_sbs(raw_img[:,:,[2,1,0]], job_queue, result_queue))
-            torch.cuda.empty_cache() #Memory issue
-            #gc.collect() #Memory issue
+            torch.cuda.empty_cache() #Do not remove this 
             if (len (FrameList) == args_god.Max_Frame_Count) or (i == (min (end-1, video_length-1))):
                 step_taken = i - begin
                 print_flush ("Estimated Total Time (minutes):", ((time.time() - begin_time) / step_taken * total_step)/60.0,", Time elapsed (minutes):", ((time.time() - begin_time))/60.0,", ETA:", ((time.time() - begin_time) / step_taken * (total_step - step_taken))/60.0)
                 print_flush (str(int(step_taken / total_step * 10000)/100), " %")            
 
-                if (ffmpeg_proc is not None):
-                    #If the previous ffmpeg subprocess did not finished,
-                    #wait till it's done before generating new one, testing found
-                    #that this timing is miniscules.
+                if (ffmpeg_proc is not None): #Wait till previous ffmpeg process is done just in case, testing found that this timing is miniscules.
                     ffmpeg_proc.wait()
                 ffmpeg_proc = subprocess.Popen(ffmpeg_config + [f'{SubClipDir}{last_i}_{i}.mp4'], stdin=subprocess.PIPE) #ffmpeg write time should only takes about 0.5 seconds, tiny amount
                 for frame in FrameList:
@@ -282,7 +270,7 @@ def nibba_woka(begin, end, job_queue, result_queue, gpu_notify_list, args_god, f
             dump_line_profile_to_csv(profiler, filename=DebugDir + str (begin//(end-begin))+'_' + str(begin)+'_Profiler.csv')
         random_sleep ((9,10), "Worker error, sleep then exit")
         return 0
-def we_ballin (args_god):
+def main_func (args_god):
     step = math.ceil((min(end_frame, video_length) - start_frame)/Num_Workers)
     frame_indices = range(start_frame, min(end_frame, video_length), step)
     #m = mp.Manager()
@@ -375,7 +363,7 @@ if __name__ == "__main__":
                                                     #Repair mode 3: Combine video only, outputting temp.mkv, used in debugging.
     #args = parser.parse_args()
     args, _ = parser.parse_known_args()  # <- ignore unknown args
-
+    print ("Discarded arguments: ", _)
     DebugDir = args.DebugDir
     SubClipDir = args.SubClipDir
     VideoDir = args.VideoDir
@@ -420,7 +408,7 @@ if __name__ == "__main__":
     freeze_support()
     #set_start_method("spawn", force=True) #no-op on Windows, uncomment this on Linux
     if (repair_mode in [0, 1]):
-        we_ballin(args)
+        main_func(args)
         
     if (repair_mode in [0, 2]):
         from Combine_Clips import combine_clips
@@ -429,3 +417,17 @@ if __name__ == "__main__":
     if (repair_mode in [3]):
         from Combine_Clips import combine_clips
         combine_clips (SubClipDir, VideoDir, OutputDir, just_combine = 1)
+
+
+"""
+#DEBUG BACKUP
+    def tensor_mem_gb(self, t):
+        if torch.is_tensor(t):
+            return t.element_size() * t.nelement() / (1024**3)
+        elif isinstance(t, (list, tuple)):
+            return sum(tensor_mem_gb(x) for x in t if torch.is_tensor(x))
+        elif isinstance(t, dict):
+            return sum(tensor_mem_gb(x) for x in t.values() if torch.is_tensor(x))
+        else:
+            return 0
+"""

@@ -188,18 +188,17 @@ def get_ffmpeg_config (VideoDir, ffmpeg_device = 'cpu'):
         '-vcodec', 'rawvideo',
         '-pix_fmt', 'rgb24',
         '-s',
-        f'{2*width}x{height}', '-r', str(fps), #DEBUG DEBUG DEBUG
+        f'{2*width}x{height}', '-r', str(fps),
         '-i', '-',  # stdin
         '-an',
         '-pix_fmt', 'yuv420p'
         ]
 
     if (ffmpeg_device == 'cpu'):
-        ffmpeg_encoder = 'libx264' #'libx264' for cpu
+        ffmpeg_encoder = 'libopenh264' #'libx264' for cpu, libopenh264 for lgpl compatibility
         ffmpeg_config += ['-c:v', ffmpeg_encoder]
-        ffmpeg_crf = '21'
-        ffmpeg_preset = 'veryfast' #ultrafast
-        ffmpeg_config += ['-crf', ffmpeg_crf, '-preset', ffmpeg_preset]  # use crf with libx264
+        ffmpeg_bitrate = '5M'
+        ffmpeg_config += ['-b:v', ffmpeg_bitrate, '-maxrate', '10M', '-bufsize', '20M']
     elif (ffmpeg_device == 'nvidia'):
         ffmpeg_encoder = 'hevc_nvenc' #h264_nvenc for h264, hevc_nvenc for h265.
         ffmpeg_config += ['-c:v', ffmpeg_encoder]

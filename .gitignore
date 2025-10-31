@@ -174,3 +174,4 @@ input_list.txt
 *.MOV
 *.pth
 /file_dialog/.git_backup
+*.exe
