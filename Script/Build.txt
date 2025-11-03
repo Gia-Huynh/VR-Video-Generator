@@ -1,3 +1,5 @@
+pipreqs . --force --encoding=utf-8 --ignore="OLD, script, build, dist"
+
 cd ../.. &
 pyinstaller --noconfirm PredictAndGenerate.spec &
 cd dist/PredictAndGenerate &

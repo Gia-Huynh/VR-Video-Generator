@@ -41,7 +41,7 @@ def dump_line_profile_to_csv(profiler, filename="line_profile_output.csv"):
 
 
 def get_length(filename):
-    result = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+    result = subprocess.run(["./ffmpeg/ffprobe", "-v", "error", "-show_entries", "format=duration",
                             "-of", "default=noprint_wrappers=1:nokey=1", filename],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -182,7 +182,7 @@ def get_ffmpeg_config (VideoDir, ffmpeg_device = 'cpu'):
     global video_length
     _, fps, video_length, width, height = load_and_set_video (VideoDir, 0)
     ffmpeg_config = [
-        'ffmpeg',
+        './ffmpeg/ffmpeg',
         '-y',
         '-f', 'rawvideo',
         '-vcodec', 'rawvideo',
