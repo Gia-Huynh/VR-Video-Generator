@@ -19,7 +19,7 @@ Photo by [Fadhil Abhimantra](https://unsplash.com/@fabhimantra?utm_source=unspla
 ## Quick Install 
 Download the lastest [release](https://github.com/Gia-Huynh/VR-Video-Generator/releases), then extract and run UserInterface.exe  
 The released version only comes with the Small model due to licensing, the other two requires manual downloading from step 3. below and placing into the ```_internal\depth_anything_v2\checkpoints``` folder.  
-## Running from source
+## Running from source [Not fully tested]
 1. Clone the repository:
 ```bash
 git clone https://github.com/Gia-Huynh/VR-Video-Generator
@@ -38,7 +38,8 @@ pip install -r requirements.txt
 
 Generally, the larger the model, the more consistent it will be frame-to-frame, though will take more vram and slightly longer to run, Large model 2.5x the total time compared to Base from my testing.  
 
-4. Run: ```python UserInterface.py```
+4. Download the latest ffmpeg from [ffmpeg release link](https://github.com/BtbN/FFmpeg-Builds/releases), look out for the ```ffmpeg-master-latest-win64-gpl.zip``` file, extract ffmpeg.exe and ffprobe.exe into ```ffmpeg``` folder.
+5. Run: ```python UserInterface.py```
 
 ## Common Issue/FAQ
 ### Q: Issue with Ram / Out of Memory
