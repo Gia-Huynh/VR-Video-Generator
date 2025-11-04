@@ -17,7 +17,7 @@ def combine_clips (subclip_path, original_path, output_path, just_combine = 0):
             f.write(f"file '{fullfile}'\n")
     # Step 3: Concatenate video files
     concat_cmd = [
-        "ffmpeg", "-f", "concat", "-safe", "0", "-y", "-i", file_list_path, "-c", "copy", "temp_video.mkv"
+        "./ffmpeg/ffmpeg", "-f", "concat", "-safe", "0", "-y", "-i", file_list_path, "-c", "copy", "temp_video.mkv"
     ]
     subprocess.run(concat_cmd, check=True)
     if (just_combine == 1):
@@ -26,7 +26,7 @@ def combine_clips (subclip_path, original_path, output_path, just_combine = 0):
     # Step 4: Extract original audio
     audio_path = "original_audio.mka"
     subprocess.run([
-        "ffmpeg", "-y", "-i", original_path,
+        "./ffmpeg/ffmpeg", "-y", "-i", original_path,
         "-map", "0:a", "-c:a", "copy",
         audio_path
     ], check=True)
@@ -34,7 +34,7 @@ def combine_clips (subclip_path, original_path, output_path, just_combine = 0):
 
     # Step 5: Merge video with extracted audio (all tracks)
     final_cmd = [
-        "ffmpeg", "-y", "-i", "temp_video.mkv", "-i", audio_path,
+        "./ffmpeg/ffmpeg", "-y", "-i", "temp_video.mkv", "-i", audio_path,
         "-map", "0:v", "-map", "1:a",  # map video + all audio streams
         "-c:v", "copy", "-c:a", "copy",
         output_path
