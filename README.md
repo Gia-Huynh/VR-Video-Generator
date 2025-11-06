@@ -15,7 +15,7 @@ Photo by [Fadhil Abhimantra](https://unsplash.com/@fabhimantra?utm_source=unspla
 | Gpu 		 | Nvidia 2060, 1650Ti, T400  | 2080 Ti		 	| Need half-precision (fp16) support, so Pascal and older gpu is out of the question|
 | Cpu 		 | Anything 				  | Amd Ryzen 9 5950X| Used for video encoding only, so no real "bare minimum" here|
 | Ram 		 | 16Gb Ram 				  | 64Gb 		 	| Check FAQ section below for Ram and Gpu Vram issue  |
-| HDD		 | 5Gb per hour of 1080p video| No ssd needed   | Prefer hdd than ssd because this writes a lot  |
+| HDD		 | 5Gb per hour of 1080p video| No ssd needed   | Prefer hdd than ssd because this writes a lot and may cause ssd wear  |
 
 ## Quick Install 
 Download the lastest [release](https://github.com/Gia-Huynh/VR-Video-Generator/releases), then extract with archiving programs like 7-zip or WinRar (don't use Windows default one), then run UserInterface.exe.
