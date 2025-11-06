@@ -1,4 +1,4 @@
-# VR Video Generator
+# VrSBG [Vr-SBS-Generator]
 Create Side-by-side (SBS) video from normal video to give you an illusion of depth, for use in VR glasses.  
 Available in source code and compiled exe file for ease of use, with Graphic User Interface.
   
