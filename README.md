@@ -19,7 +19,7 @@ Photo by [Fadhil Abhimantra](https://unsplash.com/@fabhimantra?utm_source=unspla
 
 ## Quick Install 
 Download the lastest [release](https://github.com/Gia-Huynh/VR-Video-Generator/releases), then extract and run UserInterface.exe  
-The released version only comes with the Small model due to licensing, the other two requires manual downloading from step 3. below and placing into the ```_internal\depth_anything_v2\checkpoints``` folder.  
+The released version only comes with the Small model due to licensing, the other two requires manual downloading from step 3 below and placing into the ```_internal\depth_anything_v2\checkpoints``` folder.  
 ## Running from source [Not fully tested]
 1. Clone the repository:
 ```bash
@@ -41,6 +41,11 @@ Generally, the larger the model, the more consistent it will be frame-to-frame, 
 
 4. Download the latest ffmpeg from [ffmpeg release link](https://github.com/BtbN/FFmpeg-Builds/releases), look out for the ```ffmpeg-master-latest-win64-gpl.zip``` file, extract ffmpeg.exe and ffprobe.exe into ```ffmpeg``` folder.
 5. Run: ```python UserInterface.py```
+## Parameter Changing
+**Offset foreground:** Bigger positive value means popping object closer to you, default to 0.025-0.03.  
+**Offset foreground:** Larger negative value means background feels further from you, default to -0.015.  
+Try increasing one value, increasing both value, or increasing one while decreasing the other, just mess around  with it and have fun, other people's repo have stuff like Convergence and something else idk lol this is way simpler than that.  
+**Offset step size:** Increasing from 1 to 2 will spedup conversion speed, with tradeoff of the edge smoothness.  
 
 ## Common Issue/FAQ
 ### Q: Issue with Ram / Out of Memory
