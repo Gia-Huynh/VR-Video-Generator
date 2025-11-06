@@ -18,7 +18,7 @@ Photo by [Fadhil Abhimantra](https://unsplash.com/@fabhimantra?utm_source=unspla
 | HDD		 | 5Gb per hour of 1080p video| No ssd needed   | Prefer hdd than ssd because this writes a lot  |
 
 ## Quick Install 
-Download the lastest [release](https://github.com/Gia-Huynh/VR-Video-Generator/releases), then extract and run UserInterface.exe  
+Download the lastest [release](https://github.com/Gia-Huynh/VR-Video-Generator/releases), then extract with archiving programs like 7-zip or WinRar (don't use Windows default one), then run UserInterface.exe.
 The released version only comes with the Small model due to licensing, the other two requires manual downloading from step 3 below and placing into the ```_internal\depth_anything_v2\checkpoints``` folder.  
 ## Running from source [Not fully tested]
 1. Clone the repository:
