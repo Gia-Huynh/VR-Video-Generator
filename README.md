@@ -5,6 +5,7 @@ Available in source code and compiled exe file for ease of use, with Graphic Use
 Total number of nut busted:  ![Total number of nut busted: ](https://img.shields.io/github/stars/Gia-Huynh/VR-Video-Generator)  
   
 <img src="GithubResources/ezgif.com-webp-maker.webp" alt="Demo gif with left and right eye image alternating" width="40%" height="auto;">
+
 Photo by [Fadhil Abhimantra](https://unsplash.com/@fabhimantra?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText) on [Unsplash](https://unsplash.com/photos/eagle-hunters-in-traditional-attire-converse-on-horseback-vV3ovPQAlmc?utm_source=unsplash&utm_medium=referral&utm_content=creditCopyText)
       
 ## System Requirements
