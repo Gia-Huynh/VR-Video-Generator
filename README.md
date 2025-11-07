@@ -1,7 +1,7 @@
 # VrSBG [Vr-SBS-Generator]
 Create Side-by-side (SBS) video from normal video to give you an illusion of depth, for use in VR glasses.  
 Available in source code and compiled exe file for ease of use, with Graphic User Interface.  
-Installation Guide: [Press Here](https://youtu.be/qOETIhQXpRM)  
+**Installation Video Guide**: [Press Here](https://youtu.be/qOETIhQXpRM)  
 Total number of nut busted:  ![Total number of nut busted: ](https://img.shields.io/github/stars/Gia-Huynh/VR-Video-Generator)  
   
 <img src="GithubResources/ezgif.com-webp-maker.webp" alt="Demo gif with left and right eye image alternating" width="40%" height="auto;">
@@ -18,7 +18,7 @@ Photo by [Fadhil Abhimantra](https://unsplash.com/@fabhimantra?utm_source=unspla
 | HDD		   | 5Gb per hour of 1080p video| No ssd needed       | Prefer hdd than ssd because this writes a lot and may cause ssd wear  |
 
 ## Quick Install 
-Installation Guide: [Press Here](https://youtu.be/qOETIhQXpRM)   
+**Installation Video Guide**: [Press Here](https://youtu.be/qOETIhQXpRM)  
 Download the lastest [release](https://github.com/Gia-Huynh/VR-Video-Generator/releases), then extract with archiving programs like 7-zip or WinRar (don't use Windows default one), then run UserInterface.exe.
 The released version only comes with the Small model due to licensing, the other two requires manual downloading from step 3 below and placing into the ```_internal\depth_anything_v2\checkpoints``` folder.  
 ## Running from source [Not fully tested]
