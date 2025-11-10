@@ -1,4 +1,4 @@
-# VrSBG [Vr-SBS-Generator]
+# VrSBG: 2D to 3D Vr SBS Video Generator, Easy install, GUI, Gpu Optimized, Multithreading support.
 Create Side-by-side (SBS) video from normal video to give you an illusion of depth, for use in VR glasses.  
 Available in source code and compiled exe file for ease of use, with Graphic User Interface.  
 **Installation Video Guide**: [Press Here](https://youtu.be/qOETIhQXpRM)  
